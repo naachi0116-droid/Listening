@@ -100,6 +100,7 @@ mark.ph{background:transparent;border-bottom:2px solid var(--accent);color:inher
     <h2>OpenAI APIキー</h2>
     <input id="apiKey" type="password" autocomplete="off" placeholder="sk-...">
     <div class="row"><button class="btn primary" id="saveKey" type="button">保存</button><button class="btn" id="testKey" type="button">声を試す</button></div>
+    <p class="status" id="keyStatus" role="status"></p>
     <p class="small muted" style="margin:0">キーはこのスマホのブラウザの中だけに保存され、OpenAI以外には送られません。</p>
   </div>
   <div class="panel">
@@ -307,7 +308,7 @@ async function loopForever(list){
     for(let j=0;j<list.length;j++){if(my!==runTok)return;const i=list[j];
       const slow=P.slowMix&&k%2===1;const r=slow?Math.max(0.5,Math.round((S.rate-0.15)*100)/100):S.rate;markLine(i);
       $('#loopInfo').textContent=(list.length>1?'★の文をくり返し中（'+(j+1)+'/'+list.length+'）':'この文をくり返し中')+'・'+(k+1)+'回目（×'+r+'）';
-      const ok=await speakLine(S.ep.lines[i],r);if(my!==runTok)return;if(!ok){soundFailed();return;}await sleep(900);}
+      const ok=await speakLine(S.ep.lines[i],r);if(my!==runTok)return;if(!ok){soundFailed();return;}await sleep(450);}
     k++;}
 }
 function renderSpeed(){if(!S)return;$('#spdVal').textContent='×'+S.rate.toFixed(2);const m=$('#slowMix');m.textContent=P.slowMix?'ゆっくりを交互に：オン':'ゆっくりを交互に：オフ';m.setAttribute('aria-pressed',String(P.slowMix));}
@@ -429,7 +430,7 @@ document.querySelectorAll('.chips[data-key]').forEach(g=>{const k=g.dataset.key;
 ['voiceOther','voiceYou'].forEach(id=>{const s=$('#'+id);VOICES.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);});
   s.onchange=()=>{P[id]=s.value;saveProfile();setStatus('声を「'+s.value+'」にしました。「声を試す」で確認できます。');};});
 $('#textModel').onchange=()=>{P.textModel=$('#textModel').value.trim()||'gpt-4o-mini';saveProfile();};
-function setStatus(t,err){const el=$('#setStatus');el.textContent=t;el.classList.toggle('err',!!err);}
+function setStatus(t,err){['#setStatus','#keyStatus'].forEach(id=>{const el=$(id);if(el){el.textContent=t;el.classList.toggle('err',!!err);}});}
 function renderSettings(){$('#apiKey').value=apiKey;$('#voiceOther').value=P.voiceOther;$('#voiceYou').value=P.voiceYou;$('#textModel').value=P.textModel;
   document.querySelectorAll('.chips[data-key]').forEach(g=>g.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',String(String(P[g.dataset.key])===c.dataset.v))));}
 $('#openSettings').onclick=()=>{renderSettings();setStatus('');show('settings');};
