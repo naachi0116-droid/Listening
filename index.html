@@ -87,10 +87,12 @@ mark.ph{background:transparent;border-bottom:2px solid var(--accent);color:inher
   <div id="topics" class="topic" style="gap:20px"></div>
   <div class="panel">
     <h2>ほかのテーマを追加</h2>
-    <div class="row" style="flex-wrap:nowrap">
-      <input id="newTopic" placeholder="例：銀行の窓口、レストランの予約" maxlength="40">
-      <button class="btn primary" id="addTopic" type="button">追加</button>
-    </div>
+    <p class="small muted" style="margin:0">場面をくわしく書くほど、実際に近い会話になります。文字数の制限はありません（1行目が一覧の名前になります）。</p>
+    <textarea id="newTopic" rows="5" style="font-size:.95rem" placeholder="例：薬局で子ども用の解熱剤を買う
+・子どもは5歳、昨日から38度の熱
+・薬剤師に年齢と体重を聞かれる
+・飲ませ方や、医者に行くべきか相談したい"></textarea>
+    <button class="btn primary" id="addTopic" type="button">追加</button>
   </div>
 </div>
 
@@ -364,7 +366,8 @@ function renderHome(){
     eps.forEach(ep=>{const pr=P.progress[ep.id]||{};s.appendChild(epButton(ep,(pr.done?'<b>✓ 済</b>':'まだ')));});
     const g=document.createElement('button');g.type='button';g.className='btn';g.textContent='＋ 新しい回を作る（レベル'+P.level+'）';g.onclick=()=>generate(t,g);s.appendChild(g);box.appendChild(s);}
 }
-$('#addTopic').onclick=()=>{const v=$('#newTopic').value.trim();if(!v)return;P.topics.push({key:'c-'+Date.now().toString(36),ja:v,en:v});saveProfile();$('#newTopic').value='';renderHome();homeStatus('「'+v+'」を追加しました。');};
+$('#addTopic').onclick=()=>{const v=$('#newTopic').value.trim();if(!v)return;const first=v.split(/\n/)[0].trim();const name=first.length>30?first.slice(0,30)+'…':first;
+  P.topics.push({key:'c-'+Date.now().toString(36),ja:name,en:v});saveProfile();$('#newTopic').value='';renderHome();homeStatus('「'+name+'」を追加しました。「＋ 新しい回を作る」で会話を作れます。');};
 
 /* ---------- generation (OpenAI chat) ---------- */
 async function generate(t,btn){
@@ -372,7 +375,8 @@ async function generate(t,btn){
   btn.disabled=true;const old=btn.textContent;btn.textContent='AIが書いています…（10〜30秒）';homeStatus('');
   const prev=allEps().filter(e=>e.topic===t.key).map(e=>e.title);
   const prompt=`You write short dialogues for low-stress English listening practice. The learner is a Japanese adult who lives in the Netherlands (Amstelveen).
-Topic: ${t.en}
+Topic and situation (written by the learner, possibly in Japanese; follow every detail closely and use the vocabulary that would really come up in this situation):
+${t.en}
 Level: ${LEVEL_EN[P.level]} At least 98% of the words must be within that range; any less common word must also appear in "keywords".
 Create a NEW, realistic situation clearly different from these existing episodes: ${prev.length?prev.join('; '):'(none yet)'}.
 Use exactly two speakers. One is the learner, labelled "You". The other is a role name such as "Pharmacist", "Doctor", "Receptionist", "Nurse".
