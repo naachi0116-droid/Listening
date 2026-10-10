@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ながらリスニング</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&display=swap">
+<style>
+:root{
+  --bg:#F1F4F8; --surface:#FFFFFF; --fg:#18212C; --muted:#5D6977; --line:#D6DDE6;
+  --accent:#2563A8; --accent-ink:#FFFFFF; --soft:#E1EAF5; --mark:#FBE7A6; --ok:#2F7D4F; --warn:#A0522D; --fav:#C2185B;
+  --f-en:'Literata', Georgia, 'Times New Roman', serif;
+  --f-ui:system-ui,-apple-system,'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif;
+  --r:14px; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#10151C; --surface:#18202A; --fg:#E4EAF1; --muted:#97A3B2; --line:#2B3644;
+  --accent:#7FB0E8; --accent-ink:#0B1320; --soft:#1E2B3B; --mark:#4A3F1C; --ok:#6CC594; --warn:#E39A72; --fav:#F48FB1; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg)}
+body{font-family:var(--f-ui);font-size:15px;line-height:1.6;padding-top:env(safe-area-inset-top,0px)}
+[hidden]{display:none!important}
+.wrap{max-width:560px;margin:0 auto;padding-inline:16px;padding-block:14px 56px;display:flex;flex-direction:column;gap:14px}
+h1{font-size:1.2rem;margin:0} h2{font-size:1rem;margin:0}
+.muted{color:var(--muted)} .small{font-size:.82rem}
+.btn{font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:10px;padding:8px 14px;cursor:pointer;min-height:42px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.big{min-height:56px;font-size:1.05rem;width:100%}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.55}
+.btn:focus-visible,.chip:focus-visible,.line:focus-visible,.ep:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:inherit;font-size:.85rem;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:999px;padding:5px 12px;cursor:pointer;min-height:34px}
+.chip[aria-pressed="true"]{background:var(--soft);border-color:var(--accent);font-weight:600}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
+.set{display:grid;grid-template-columns:5em 1fr;gap:8px;align-items:center}
+.set>span{font-size:.82rem;color:var(--muted)}
+input,select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-height:42px;width:100%;min-width:0}
+textarea{min-height:90px;font-size:.8rem}
+.status{font-size:.85rem;color:var(--accent);margin:0;min-height:1.2em}
+.status.err{color:var(--warn)}
+.topic{display:flex;flex-direction:column;gap:8px}
+.topic-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ep{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;text-align:left;font:inherit;color:var(--fg);width:100%}
+.ep .t{font-family:var(--f-en);font-weight:600;min-width:0}
+.ep .j{font-size:.82rem;color:var(--muted);grid-column:1}
+.ep .s{grid-row:1/3;grid-column:2;font-size:.78rem;color:var(--muted);text-align:right}
+.ep .s b{color:var(--ok)}
+.fav{color:var(--fav)}
+.top{display:flex;align-items:center;gap:8px}
+.top .btn{min-height:36px;padding:4px 10px}
+.top h1{font-family:var(--f-en);font-size:1.05rem;flex:1;min-width:0}
+#favBtn{white-space:nowrap}
+#favBtn[aria-pressed="true"]{color:var(--fav);border-color:var(--fav)}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.script{display:flex;flex-direction:column;gap:4px}
+.line{padding:8px 10px;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.line.cur{background:var(--mark)}
+.line .sp{font-size:.72rem;color:var(--muted);letter-spacing:.04em}
+.line.hard .sp{color:var(--accent);font-weight:600}
+.line .en{font-family:var(--f-en);font-size:1.08rem;line-height:1.5;overflow-wrap:anywhere}
+.line .ja{font-size:.85rem;color:var(--muted)}
+.line .fx{font-size:.8rem;border-left:3px solid var(--accent);padding-left:8px;margin-top:4px}
+.line .fx b{font-family:var(--f-en)}
+mark.ph{background:transparent;border-bottom:2px solid var(--accent);color:inherit}
+.loopbar{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:2px solid var(--accent);padding:10px 16px calc(12px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:5}
+.loopbar>*{max-width:560px;margin:0 auto;width:100%}
+.loopbtns{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:8px}
+.loopbtns .btn{min-height:52px;padding:6px 8px}
+.speedrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.speedrow .btn{min-height:40px;padding:4px 10px}
+.spdval{font-variant-numeric:tabular-nums;font-weight:600;min-width:3.2em;text-align:center}
+#loopInfo{color:var(--accent);font-weight:600;margin:0}
+.prep{font-size:.82rem;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<div class="wrap" id="home">
+  <div class="row" style="justify-content:space-between">
+    <h1>ながらリスニング</h1>
+    <button class="btn ghost" id="openSettings" type="button">⚙ 設定</button>
+  </div>
+  <p class="status" id="homeStatus" role="status"></p>
+  <div id="topics" class="topic" style="gap:20px"></div>
+  <div class="panel">
+    <h2>ほかのテーマを追加</h2>
+    <div class="row" style="flex-wrap:nowrap">
+      <input id="newTopic" placeholder="例：銀行の窓口、レストランの予約" maxlength="40">
+      <button class="btn primary" id="addTopic" type="button">追加</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap" id="settings" hidden>
+  <div class="top"><button class="btn ghost" id="closeSettings" type="button">← 戻る</button><h1>設定</h1></div>
+  <div class="panel">
+    <h2>OpenAI APIキー</h2>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="sk-...">
+    <div class="row"><button class="btn primary" id="saveKey" type="button">保存</button><button class="btn" id="testKey" type="button">声を試す</button></div>
+    <p class="small muted" style="margin:0">キーはこのスマホのブラウザの中だけに保存され、OpenAI以外には送られません。</p>
+  </div>
+  <div class="panel">
+    <h2>声</h2>
+    <div class="set"><span>相手の声</span><select id="voiceOther"></select></div>
+    <div class="set"><span>自分の声</span><select id="voiceYou"></select></div>
+    <div class="set"><span>なまり</span><div class="chips" data-key="accent"></div></div>
+    <p class="small muted" style="margin:0">声を変えると、次に開いた回から新しい声で作り直します（1回あたり数円）。</p>
+  </div>
+  <div class="panel">
+    <div class="set"><span>速さ</span><div class="chips" data-key="rate"></div></div>
+    <div class="set"><span>レベル</span><div class="chips" data-key="level"></div></div>
+    <div class="set"><span>文章のAI</span><input id="textModel"></div>
+  </div>
+  <div class="panel">
+    <h2>バックアップ</h2>
+    <p class="small muted" style="margin:0">作った回・★・♥ はこのスマホに保存されます。機種変更のときは、下の文字をコピーして新しい方に貼り付けてください。</p>
+    <div class="row"><button class="btn" id="exportBtn" type="button">書き出す</button><button class="btn" id="importBtn" type="button">貼り付けたものを読み込む</button></div>
+    <textarea id="backupBox" spellcheck="false"></textarea>
+  </div>
+  <p class="status" id="setStatus" role="status"></p>
+</div>
+
+<div class="wrap" id="session" hidden>
+  <div class="top">
+    <button class="btn ghost" id="back" type="button">← 一覧</button>
+    <h1 id="sTitle"></h1>
+    <button class="btn" id="favBtn" type="button" aria-pressed="false"></button>
+  </div>
+  <div class="stage" id="stage"></div>
+  <p class="status" id="sStatus" role="status"></p>
+  <div style="height:150px"></div>
+</div>
+
+<div class="loopbar" id="loopBar" hidden>
+  <p class="small" id="loopInfo"></p>
+  <div class="speedrow">
+    <span class="small muted">速さ</span>
+    <button class="btn" id="spdDown" type="button">− 遅く</button>
+    <span id="spdVal" class="spdval"></span>
+    <button class="btn" id="spdUp" type="button">速く ＋</button>
+    <button class="chip" id="slowMix" type="button"></button>
+  </div>
+  <div class="loopbtns">
+    <button class="btn" id="loopPrev" type="button">◀ 前の文</button>
+    <button class="btn primary" id="loopNext" type="button">次の文 ▶</button>
+    <button class="btn" id="loopStop" type="button">■ 止める</button>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const local={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+const BUILTIN=[
+{id:'b-pharm-1',topic:'pharmacy',level:3,title:'Picking up a prescription',titleJa:'処方薬を受け取る',
+ preview:'医師が出した処方薬を、薬局に受け取りに来た場面です。飲み方や注意点の説明を聞きます。',
+ keywords:[{en:'prescription',ja:'処方箋・処方薬'},{en:'tablet',ja:'錠剤'},{en:'side effects',ja:'副作用'},{en:'covered by insurance',ja:'保険でまかなわれる'}],
+ lines:[
+  {sp:'Pharmacist',en:'Good morning. How can I help you?',ja:'おはようございます。どうされましたか？'},
+  {sp:'You',en:"Hi. I'm here to pick up a prescription. My doctor sent it this morning.",ja:'こんにちは。処方薬を受け取りに来ました。今朝、医師が送ってくれたはずです。'},
+  {sp:'Pharmacist',en:'Sure. Can I have your name and date of birth, please?',ja:'わかりました。お名前と生年月日をお願いできますか？'},
+  {sp:'You',en:"It's Kondo, K-O-N-D-O. The second of April, nineteen eighty.",ja:'コンドウです。K-O-N-D-O。1980年4月2日です。'},
+  {sp:'Pharmacist',en:"Thank you. Let me check. Yes, it's ready. Have you taken this medicine before?",ja:'ありがとうございます。確認しますね。はい、できています。この薬は前に飲んだことはありますか？'},
+  {sp:'You',en:'No, this is the first time.',ja:'いいえ、初めてです。'},
+  {sp:'Pharmacist',en:'OK. Take one tablet twice a day, after meals.',ja:'わかりました。1日2回、食後に1錠ずつ飲んでください。'},
+  {sp:'You',en:'Should I take it with water?',ja:'水で飲めばいいですか？'},
+  {sp:'Pharmacist',en:"Yes, a full glass of water is best. And try not to drink alcohol while you're taking it.",ja:'はい、コップ1杯の水がいちばんです。それと、飲んでいる間はお酒を控えてください。'},
+  {sp:'You',en:'Got it. Are there any side effects?',ja:'わかりました。副作用はありますか？'},
+  {sp:'Pharmacist',en:"Some people feel a bit sleepy, so be careful if you're driving.",ja:'少し眠くなる人がいるので、運転するときは気をつけてください。'},
+  {sp:'You',en:'OK, thanks. Do I need to pay anything?',ja:'わかりました、ありがとう。何か支払いは必要ですか？'},
+  {sp:'Pharmacist',en:"No, it's covered by your insurance. Here you go.",ja:'いいえ、保険でまかなわれます。どうぞ。'},
+  {sp:'You',en:'Great. Thank you so much.',ja:'よかった。本当にありがとうございます。'},
+  {sp:'Pharmacist',en:"You're welcome. Get well soon!",ja:'どういたしまして。お大事に！'}],
+ check:{q:'薬剤師に注意されたことは？',options:['飲んでいる間はお酒を控える','朝食の前に飲む'],answer:0,explain:'「try not to drink alcohol」と言っていました。飲むのは1日2回、食後です。'},
+ focus:[{phrase:'Can I have',sound:'キャナイハヴ',note:'can の n と I がつながって「キャナイ」になります。'},
+        {phrase:'Let me check',sound:'レミチェック',note:'let の t がほとんど消えて「レミ」に聞こえます。'},
+        {phrase:'Got it',sound:'ガリッ',note:'t がラ行のように軽くなり、最後の t はほぼ聞こえません。'}]},
+{id:'b-hosp-1',topic:'hospital',level:3,title:'Seeing the GP about a cough',titleJa:'咳でかかりつけ医に行く',
+ preview:'1週間続く咳で、かかりつけ医（huisarts）を受診した場面です。症状を伝えて、診断と助言を聞きます。',
+ keywords:[{en:'cough',ja:'咳'},{en:'fever',ja:'熱'},{en:'lungs',ja:'肺'},{en:'on its own',ja:'自然に'}],
+ lines:[
+  {sp:'Doctor',en:'Hello, come in and take a seat. What brings you here today?',ja:'こんにちは、どうぞおかけください。今日はどうされましたか？'},
+  {sp:'You',en:"Hi. I've had a bad cough for about a week, and it's not getting better.",ja:'こんにちは。1週間ほどひどい咳が続いていて、よくならないんです。'},
+  {sp:'Doctor',en:'I see. Do you have a fever as well?',ja:'なるほど。熱もありますか？'},
+  {sp:'You',en:"I had a slight fever a few days ago, but it's gone now.",ja:'数日前に少し熱がありましたが、今は下がりました。'},
+  {sp:'Doctor',en:'OK. Is the cough dry, or are you coughing anything up?',ja:'わかりました。乾いた咳ですか、それとも何か出ますか？'},
+  {sp:'You',en:"It's mostly dry. It gets worse at night, so I can't sleep well.",ja:'ほとんど乾いた咳です。夜にひどくなるので、よく眠れません。'},
+  {sp:'Doctor',en:'That sounds tiring. Let me listen to your chest. Take a deep breath in, and out.',ja:'それはつらいですね。胸の音を聞きますね。大きく息を吸って、吐いて。'},
+  {sp:'You',en:'Is everything OK?',ja:'大丈夫そうですか？'},
+  {sp:'Doctor',en:"Your lungs sound clear, so it's probably a virus. It should go away on its own.",ja:'肺の音はきれいなので、たぶんウイルスでしょう。自然に治るはずです。'},
+  {sp:'You',en:'Do I need any medicine?',ja:'薬は必要ですか？'},
+  {sp:'Doctor',en:'Not really. Drink plenty of warm drinks and get some rest. Honey can help with the cough, too.',ja:'特に要りません。温かい飲み物をたくさん飲んで、休んでください。はちみつも咳に効きますよ。'},
+  {sp:'You',en:"OK. What if it doesn't get better?",ja:'わかりました。もしよくならなかったら？'},
+  {sp:'Doctor',en:'If you still have the cough in two weeks, or if you get a high fever, give us a call.',ja:'2週間たっても咳が続くか、高い熱が出たら、電話してください。'},
+  {sp:'You',en:'All right. Thank you, doctor.',ja:'わかりました。ありがとうございます、先生。'}],
+ check:{q:'医師の見立ては？',options:['たぶんウイルスで、自然に治る','すぐに薬を飲む必要がある'],answer:0,explain:'「it\'s probably a virus. It should go away on its own」と言っていました。'},
+ focus:[{phrase:'What brings you',sound:'ワッブリングズュ',note:'what の t が消えて、次の brings にすぐつながります。'},
+        {phrase:'take a seat',sound:'テイカシート',note:'take と a がつながって「テイカ」になります。'},
+        {phrase:'give us a call',sound:'ギヴァサコール',note:'give・us・a の3語が1語のようにつながります。'}]}
+];
+
+const BASE_TOPICS=[{key:'pharmacy',ja:'薬局',en:'at a pharmacy (apotheek) in the Netherlands'},{key:'hospital',ja:'病院・かかりつけ医',en:'at a GP practice (huisarts) or a hospital in the Netherlands'}];
+const LEVEL_EN={1:'CEFR A2, very easy: short sentences (under 9 words), only the most common 1,000 English words, no idioms.',
+ 2:'CEFR A2+: short sentences, common 1,500 words, very few phrasal verbs.',
+ 3:'CEFR B1: everyday words within the most common 2,500 word families, clear natural sentences, a few common phrasal verbs.',
+ 4:'CEFR B1+/B2: natural conversational English within 3,500 word families, some idioms and contractions.',
+ 5:'CEFR B2: natural native-like conversation within 4,500 word families, reductions, idioms and longer turns.'};
+const VOICES=['alloy','ash','ballad','coral','echo','fable','nova','onyx','sage','shimmer','verse','marin','cedar'];
+
+const P=Object.assign({level:3,rate:0.9,slowMix:true,showJa:true,favs:{},progress:{},topics:[],voiceOther:'coral',voiceYou:'ash',accent:'gb',textModel:'gpt-4o-mini'},local.get('nl.profile',{}));
+let userEps=local.get('nl.eps',{});
+let apiKey=local.get('nl.key','');
+const allEps=()=>[...BUILTIN,...Object.values(userEps)];
+const topics=()=>[...BASE_TOPICS,...P.topics];
+const saveProfile=()=>local.set('nl.profile',P);
+const saveEps=()=>local.set('nl.eps',userEps);
+
+/* ---------- audio cache (IndexedDB) ---------- */
+const idb={db:null,
+  open(){return new Promise((res,rej)=>{const r=indexedDB.open('nl-audio',1);r.onupgradeneeded=()=>r.result.createObjectStore('a');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});},
+  async get(k){try{this.db=this.db||await this.open();return await new Promise(res=>{const q=this.db.transaction('a').objectStore('a').get(k);q.onsuccess=()=>res(q.result||null);q.onerror=()=>res(null);});}catch(e){return null}},
+  async set(k,v){try{this.db=this.db||await this.open();await new Promise(res=>{const t=this.db.transaction('a','readwrite');t.objectStore('a').put(v,k);t.oncomplete=res;t.onerror=res;});}catch(e){}}};
+const urlCache=new Map(),pending=new Map();
+function voiceFor(line){return line.sp==='You'?P.voiceYou:P.voiceOther;}
+function instrFor(line){const acc=P.accent==='gb'?'a natural British English accent':'a natural American English accent';
+  return `Speak with ${acc}, clearly and at a relaxed conversational pace. You are ${line.sp==='You'?'a customer or patient':'a friendly '+line.sp.toLowerCase()} in an everyday conversation.`;}
+function keyFor(line){return ['gpt-4o-mini-tts',voiceFor(line),P.accent,line.sp==='You'?'you':'other',line.en].join('|');}
+class ApiError extends Error{constructor(code,msg){super(msg);this.code=code;}}
+async function getAudioUrl(line){
+  const k=keyFor(line);if(urlCache.has(k))return urlCache.get(k);
+  if(pending.has(k))return pending.get(k);
+  const p=(async()=>{
+    let blob=await idb.get(k);
+    if(!blob){
+      if(!apiKey)throw new ApiError('nokey','APIキーが設定されていません');
+      const r=await fetch('https://api.openai.com/v1/audio/speech',{method:'POST',headers:{'Authorization':'Bearer '+apiKey,'Content-Type':'application/json'},
+        body:JSON.stringify({model:'gpt-4o-mini-tts',voice:voiceFor(line),input:line.en,instructions:instrFor(line),response_format:'mp3'})});
+      if(!r.ok)throw new ApiError(r.status,await r.text().catch(()=>''));
+      blob=await r.blob();await idb.set(k,blob);
+    }
+    const u=URL.createObjectURL(blob);urlCache.set(k,u);return u;})();
+  pending.set(k,p);try{return await p;}finally{pending.delete(k);}
+}
+function apiErrText(e){
+  if(!e)return '音声を作れませんでした。';
+  if(e.code==='nokey')return '設定でAPIキーを入れると、自然な声になります（今は端末の読み上げ音声です）。';
+  if(e.code===401)return 'APIキーが正しくないようです。設定で入れ直してください。';
+  if(e.code===429)return 'OpenAIの利用上限か残高に達したか、混み合っています。少し待つか、残高を確認してください。';
+  if(e.code===403)return 'このAPIキーには音声の権限がないようです。キーの Permissions を確認してください。';
+  return '音声を作れませんでした（通信エラー）。電波の良い所でもう一度試してください。';}
+
+/* ---------- player ---------- */
+const audio=new Audio();try{audio.preservesPitch=true;audio.webkitPreservesPitch=true;}catch(e){}
+let endResolve=null,runTok=0,wake=null,ttsVoices=[];
+const hasTTS='speechSynthesis' in window;
+function loadTTS(){try{ttsVoices=speechSynthesis.getVoices().filter(v=>/^en/i.test(v.lang));}catch(e){}}
+if(hasTTS){loadTTS();speechSynthesis.onvoiceschanged=loadTTS;}
+function haltSound(){try{audio.pause();}catch(e){}if(hasTTS)speechSynthesis.cancel();if(endResolve){const r=endResolve;endResolve=null;r(false);}}
+async function lockScreen(){try{if('wakeLock' in navigator&&!wake){wake=await navigator.wakeLock.request('screen');wake.addEventListener('release',()=>{wake=null});}}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S)lockScreen();});
+let lastErr='';
+function playUrl(url,rate){return new Promise(res=>{let started=false;endResolve=res;
+  audio.onplaying=()=>{started=true;};
+  audio.onended=()=>{endResolve=null;res(started);};
+  audio.onerror=()=>{endResolve=null;lastErr='音声ファイルを再生できませんでした。';res(false);};
+  audio.src=url;audio.playbackRate=rate;
+  audio.play().catch(e=>{endResolve=null;lastErr='再生がブロックされました（'+(e&&e.name||'')+'）。もう一度 ▶ を押してください。';res(false);});});}
+function playTTS(line,rate){return new Promise(res=>{
+  if(!hasTTS){lastErr='この端末では読み上げ音声が使えません。';res(false);return;}
+  const u=new SpeechSynthesisUtterance(line.en);const v=line.sp==='You'?(ttsVoices[1]||ttsVoices[0]):ttsVoices[0];
+  if(v){u.voice=v;u.lang=v.lang;}else u.lang='en-GB';u.rate=rate;u.pitch=line.sp==='You'&&(!ttsVoices[1])?1.15:1;
+  let d=false,started=false;const fin=ok=>{if(!d){d=true;endResolve=null;res(ok);}};
+  endResolve=r=>{d=true;res(r);};u.onstart=()=>{started=true;};u.onend=()=>fin(started);
+  u.onerror=e=>{lastErr='読み上げエラー（'+(e&&e.error||'')+'）';fin(false);};
+  setTimeout(()=>fin(started),line.en.length*160/rate+5000);speechSynthesis.speak(u);});}
+// returns true only when sound actually played
+async function speakLine(line,rate){
+  if(apiKey){
+    let url=null;try{url=await getAudioUrl(line);}catch(e){lastErr=apiErrText(e);}
+    if(url){const ok=await playUrl(url,rate);if(ok)return true;}
+  }
+  let ok=await playTTS(line,rate);
+  if(!ok&&hasTTS){speechSynthesis.cancel();await sleep(300);ok=await playTTS(line,rate);} // Chrome sometimes drops the first utterance after cancel
+  return ok;
+}
+function soundFailed(){stopAudio();markLine(-1);sStatus('音が出ませんでした。'+(lastErr||'スマホの音量・マナーモードを確認して、もう一度 ▶ を押してください。'),true);
+  const p=$('#prep');if(p){p.textContent=$('#sStatus').textContent;p.style.color='var(--warn)';}}
+function stopAudio(){runTok++;haltSound();hideLoop();}
+async function playLines(from,to){
+  hideLoop();const my=++runTok;haltSound();lockScreen();await sleep(250);
+  for(let i=from;i<to;i++){if(my!==runTok)return;markLine(i);const ok=await speakLine(S.ep.lines[i],S.rate);if(my!==runTok)return;if(!ok){soundFailed();return;}await sleep(380);}
+  markLine(-1);
+}
+function hideLoop(){if(S)S.loop=null;$('#loopBar').hidden=true;}
+async function loopForever(list){
+  hideLoop();const my=++runTok;haltSound();lockScreen();
+  S.loop={list};$('#loopBar').hidden=false;$('#loopPrev').hidden=list.length>1;
+  $('#loopNext').textContent=list.length>1?'やめる ▶':'次の文 ▶';
+  renderSpeed();await sleep(120);let k=0;
+  while(my===runTok){
+    for(let j=0;j<list.length;j++){if(my!==runTok)return;const i=list[j];
+      const slow=P.slowMix&&k%2===1;const r=slow?Math.max(0.5,Math.round((S.rate-0.15)*100)/100):S.rate;markLine(i);
+      $('#loopInfo').textContent=(list.length>1?'★の文をくり返し中（'+(j+1)+'/'+list.length+'）':'この文をくり返し中')+'・'+(k+1)+'回目（×'+r+'）';
+      const ok=await speakLine(S.ep.lines[i],r);if(my!==runTok)return;if(!ok){soundFailed();return;}await sleep(900);}
+    k++;}
+}
+function renderSpeed(){if(!S)return;$('#spdVal').textContent='×'+S.rate.toFixed(2);const m=$('#slowMix');m.textContent=P.slowMix?'ゆっくりを交互に：オン':'ゆっくりを交互に：オフ';m.setAttribute('aria-pressed',String(P.slowMix));}
+function changeSpeed(d){if(!S)return;S.rate=Math.min(1.3,Math.max(0.5,Math.round((S.rate+d)*100)/100));P.rate=S.rate;saveProfile();renderSpeed();}
+$('#spdDown').onclick=()=>changeSpeed(-0.05);$('#spdUp').onclick=()=>changeSpeed(0.05);
+$('#slowMix').onclick=()=>{P.slowMix=!P.slowMix;saveProfile();renderSpeed();};
+$('#loopStop').onclick=()=>{stopAudio();markLine(-1);};
+$('#loopPrev').onclick=()=>{if(!S||!S.loop)return;const i=S.loop.list[0];if(i>0){addMark(i-1);loopForever([i-1]);}};
+$('#loopNext').onclick=()=>{if(!S||!S.loop)return;const l=S.loop.list;if(l.length>1||l[0]+1>=S.ep.lines.length){stopAudio();markLine(-1);return;}addMark(l[0]+1);loopForever([l[0]+1]);};
+
+/* ---------- home ---------- */
+function homeStatus(t,err){const el=$('#homeStatus');el.textContent=t;el.classList.toggle('err',!!err);}
+function epButton(ep,right){const tp=topics().find(t=>t.key===ep.topic);const b=document.createElement('button');b.type='button';b.className='ep';
+  b.innerHTML=`<span class="t">${P.favs[ep.id]?'<span class="fav">♥</span> ':''}${esc(ep.title)}</span><span class="j">${esc(ep.titleJa)}${tp?' · '+esc(tp.ja):''}</span><span class="s">${right}</span>`;
+  b.onclick=()=>openEpisode(ep);return b;}
+function section(title,count){const s=document.createElement('section');s.className='topic';s.innerHTML=`<div class="topic-head"><h2>${title}</h2><span class="small muted">${count} 回</span></div>`;return s;}
+function renderHome(){
+  const box=$('#topics');box.innerHTML='';
+  if(!apiKey)homeStatus('⚙ 設定でAPIキーを入れると、自然な声になります。');
+  const favs=allEps().filter(e=>P.favs[e.id]);
+  if(favs.length){const s=section('<span class="fav">♥</span> お気に入り',favs.length);
+    favs.forEach(ep=>{const n=((P.progress[ep.id]||{}).hard||[]).length;s.appendChild(epButton(ep,n?'★ '+n+'文':''));});box.appendChild(s);}
+  const done=allEps().filter(e=>(P.progress[e.id]||{}).done).sort((a,b)=>(P.progress[b.id].at||0)-(P.progress[a.id].at||0));
+  if(done.length){const s=section('練習した回（おさらい）',done.length);
+    done.forEach(ep=>{const pr=P.progress[ep.id];const d=pr.at?new Date(pr.at):null;const n=(pr.hard||[]).length;
+      s.appendChild(epButton(ep,(d?(d.getMonth()+1)+'/'+d.getDate()+' 練習':'')+(pr.count>1?'<br>'+pr.count+'回目':'')+(n?'<br>★ '+n+'文':'')));});box.appendChild(s);}
+  for(const t of topics()){const eps=allEps().filter(e=>e.topic===t.key);const s=section(esc(t.ja),eps.length);
+    eps.forEach(ep=>{const pr=P.progress[ep.id]||{};s.appendChild(epButton(ep,(pr.done?'<b>✓ 済</b>':'まだ')));});
+    const g=document.createElement('button');g.type='button';g.className='btn';g.textContent='＋ 新しい回を作る（レベル'+P.level+'）';g.onclick=()=>generate(t,g);s.appendChild(g);box.appendChild(s);}
+}
+$('#addTopic').onclick=()=>{const v=$('#newTopic').value.trim();if(!v)return;P.topics.push({key:'c-'+Date.now().toString(36),ja:v,en:v});saveProfile();$('#newTopic').value='';renderHome();homeStatus('「'+v+'」を追加しました。');};
+
+/* ---------- generation (OpenAI chat) ---------- */
+async function generate(t,btn){
+  if(!apiKey){homeStatus('新しい回を作るには、⚙ 設定でAPIキーを入れてください。',true);return;}
+  btn.disabled=true;const old=btn.textContent;btn.textContent='AIが書いています…（10〜30秒）';homeStatus('');
+  const prev=allEps().filter(e=>e.topic===t.key).map(e=>e.title);
+  const prompt=`You write short dialogues for low-stress English listening practice. The learner is a Japanese adult who lives in the Netherlands (Amstelveen).
+Topic: ${t.en}
+Level: ${LEVEL_EN[P.level]} At least 98% of the words must be within that range; any less common word must also appear in "keywords".
+Create a NEW, realistic situation clearly different from these existing episodes: ${prev.length?prev.join('; '):'(none yet)'}.
+Use exactly two speakers. One is the learner, labelled "You". The other is a role name such as "Pharmacist", "Doctor", "Receptionist", "Nurse".
+Write 12 to 16 lines. Keep medical content general and safe: no drug names with doses.
+Reply with only one JSON object:
+{"title":"English title, max 6 words","titleJa":"Japanese title","keywords":[{"en":"","ja":""}],
+ "lines":[{"sp":"Receptionist","en":"English line","ja":"natural Japanese translation"}],
+ "focus":[{"phrase":"exact words copied from one line","sound":"how it sounds in katakana","note":"short Japanese explanation of the connected-speech feature"}]}
+keywords: 3 or 4 items. focus: exactly 3 items.`;
+  try{
+    const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Authorization':'Bearer '+apiKey,'Content-Type':'application/json'},
+      body:JSON.stringify({model:P.textModel||'gpt-4o-mini',response_format:{type:'json_object'},messages:[{role:'user',content:prompt}]})});
+    if(!r.ok){const tx=await r.text().catch(()=>'');throw new ApiError(r.status,tx);}
+    const j=await r.json();const d=JSON.parse(j.choices[0].message.content);
+    const ep=validate(d,t.key);userEps[ep.id]=ep;saveEps();renderHome();homeStatus('新しい回「'+ep.titleJa+'」ができました。');
+  }catch(e){
+    if(e.code===404||(e.code===400&&/model/i.test(e.message)))homeStatus('文章のAI「'+P.textModel+'」が使えないようです。⚙ 設定で別のモデル名にしてください。',true);
+    else homeStatus(e.code?apiErrText(e).replace('音声','文章'):'うまく作れませんでした。もう一度押してください。',true);
+  }finally{btn.disabled=false;btn.textContent=old;}
+}
+function validate(d,topic){
+  if(!d||!Array.isArray(d.lines))throw new Error('bad');
+  const lines=d.lines.filter(l=>l&&typeof l.en==='string'&&l.en.trim()).map(l=>({sp:String(l.sp||'Speaker').slice(0,30),en:l.en.trim(),ja:String(l.ja||'')}));
+  if(lines.length<6)throw new Error('bad');
+  const all=lines.map(l=>l.en.toLowerCase()).join('\n');
+  return {id:'u-'+Date.now().toString(36),topic,level:P.level,title:String(d.title||'New episode').slice(0,80),titleJa:String(d.titleJa||'新しい回').slice(0,60),
+    keywords:(Array.isArray(d.keywords)?d.keywords:[]).slice(0,5).map(k=>({en:String(k.en||''),ja:String(k.ja||'')})).filter(k=>k.en),lines,
+    focus:(Array.isArray(d.focus)?d.focus:[]).map(f=>({phrase:String(f.phrase||''),sound:String(f.sound||''),note:String(f.note||'')})).filter(f=>f.phrase&&all.includes(f.phrase.toLowerCase())).slice(0,3)};
+}
+
+/* ---------- session ---------- */
+let S=null;
+function sStatus(t,err){const el=$('#sStatus');el.textContent=t;el.classList.toggle('err',!!err);}
+function openEpisode(ep){
+  const pr=P.progress[ep.id]||{};
+  S={ep,rate:P.rate,cur:-1,showJa:P.showJa!==false,marked:new Set(pr.hard||[]),loop:null};
+  show('session');window.scrollTo(0,0);$('#sTitle').textContent=ep.title;renderFav();render();prefetch(ep);
+}
+async function prefetch(ep){
+  if(!apiKey){const el=$('#prep');if(el)el.textContent='音声：端末の読み上げ（⚙ 設定でAPIキーを入れると自然な声になります）';return;}const el=$('#prep');let done=0;const n=ep.lines.length;
+  const upd=()=>{if(el&&S&&S.ep===ep)el.textContent=done<n?'自然な音声を準備中… '+done+' / '+n:'音声の準備ができました。何度聞いても追加料金はかかりません。';};upd();
+  let failed=null;const q=ep.lines.slice();
+  await Promise.all([0,1,2].map(async()=>{while(q.length){const l=q.shift();try{await getAudioUrl(l);}catch(e){failed=failed||e;}done++;upd();}}));
+  if(failed&&S&&S.ep===ep)sStatus(apiErrText(failed),true);
+}
+function closeSession(){stopAudio();S=null;show('home');renderHome();}
+$('#back').onclick=closeSession;
+function renderFav(){const on=!!P.favs[S.ep.id];const b=$('#favBtn');b.textContent=on?'♥ お気に入り':'♡ お気に入り';b.setAttribute('aria-pressed',String(on));}
+$('#favBtn').onclick=()=>{if(!S)return;if(P.favs[S.ep.id])delete P.favs[S.ep.id];else P.favs[S.ep.id]=true;saveProfile();renderFav();};
+function addMark(i){S.marked.add(i);const id=S.ep.id;P.progress[id]=Object.assign({},P.progress[id],{hard:[...S.marked]});saveProfile();
+  const el=document.querySelector('.line[data-i="'+i+'"]');if(el&&!el.classList.contains('hard')){el.classList.add('hard');el.querySelector('.sp').textContent='★ '+S.ep.lines[i].sp;}
+  const hb=$('#playHard');if(hb)hb.textContent='★の文だけ（'+S.marked.size+'）';else render();}
+function hl(en,focus){let h=esc(en);for(const f of focus){const i=en.toLowerCase().indexOf(f.phrase.toLowerCase());if(i>=0){const p=esc(en.slice(i,i+f.phrase.length));h=h.replace(p,'<mark class="ph">'+p+'</mark>');}}return h;}
+function render(){
+  const ep=S.ep;
+  const lines=ep.lines.map((l,i)=>{const fx=(ep.focus||[]).filter(f=>l.en.toLowerCase().includes(f.phrase.toLowerCase()));
+    return `<div class="line${i===S.cur?' cur':''}${S.marked.has(i)?' hard':''}" data-i="${i}" tabindex="0"><span class="sp">${S.marked.has(i)?'★ ':''}${esc(l.sp)}</span><span class="en">${hl(l.en,fx)}</span>${S.showJa&&l.ja?`<span class="ja">${esc(l.ja)}</span>`:''}${fx.map(f=>`<span class="fx"><b>${esc(f.phrase)}</b> → ${esc(f.sound)}　${esc(f.note)}</span>`).join('')}</div>`;}).join('');
+  $('#stage').innerHTML=`<p class="small muted" style="margin:0">行をタップすると、その文を止めるまでくり返します（★が付きます）。<mark class="ph">下線</mark>は音がつながる所です。</p>
+    <p class="prep" id="prep" style="margin:0"></p>
+    <div class="row"><button class="btn primary" id="playAll" type="button">▶ 全部聞く</button>${S.marked.size?`<button class="btn primary" id="playHard" type="button">★の文だけ（${S.marked.size}）</button>`:''}<button class="btn" id="stopB" type="button">■</button><button class="chip" id="jaT" type="button" aria-pressed="${S.showJa}">和訳</button></div>
+    <div class="script">${lines}</div>
+    <button class="btn big" id="doneB" type="button">おわり（一覧に戻る）</button>`;
+  $('#playAll').onclick=()=>playLines(0,S.ep.lines.length);
+  if($('#playHard'))$('#playHard').onclick=()=>loopForever([...S.marked].sort((a,b)=>a-b));
+  $('#stopB').onclick=()=>{stopAudio();markLine(-1);};
+  $('#jaT').onclick=()=>{S.showJa=!S.showJa;P.showJa=S.showJa;saveProfile();render();};
+  $('#doneB').onclick=finish;
+  document.querySelectorAll('.line').forEach(el=>{const f=()=>{const i=Number(el.dataset.i);addMark(i);loopForever([i]);};el.onclick=f;el.onkeydown=e=>{if(e.key==='Enter')f();};});
+}
+function markLine(i){if(!S)return;S.cur=i;document.querySelectorAll('.line').forEach(el=>el.classList.toggle('cur',Number(el.dataset.i)===i));
+  const el=document.querySelector('.line.cur');if(el)el.scrollIntoView({block:'center',behavior:'smooth'});}
+function finish(){const ep=S.ep;const prev=P.progress[ep.id]||{};
+  P.progress[ep.id]={done:true,at:Date.now(),hard:[...S.marked],count:(prev.done?(prev.count||1):0)+1};saveProfile();homeStatus('おつかれさまでした。');closeSession();}
+
+/* ---------- settings ---------- */
+function show(id){['home','settings','session'].forEach(x=>$('#'+x).hidden=x!==id);}
+const CHIP={accent:[['gb','イギリス'],['us','アメリカ']],rate:[[0.75,'0.75'],[0.8,'0.8'],[0.9,'0.9'],[1,'1.0'],[1.1,'1.1']],level:[[1,'1'],[2,'2'],[3,'3'],[4,'4'],[5,'5']]};
+document.querySelectorAll('.chips[data-key]').forEach(g=>{const k=g.dataset.key;for(const [v,l] of CHIP[k]){const b=document.createElement('button');b.type='button';b.className='chip';b.textContent=l;b.dataset.v=String(v);
+  b.onclick=()=>{P[k]=v;saveProfile();renderSettings();};g.appendChild(b);}});
+['voiceOther','voiceYou'].forEach(id=>{const s=$('#'+id);VOICES.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);});
+  s.onchange=()=>{P[id]=s.value;saveProfile();setStatus('声を「'+s.value+'」にしました。「声を試す」で確認できます。');};});
+$('#textModel').onchange=()=>{P.textModel=$('#textModel').value.trim()||'gpt-4o-mini';saveProfile();};
+function setStatus(t,err){const el=$('#setStatus');el.textContent=t;el.classList.toggle('err',!!err);}
+function renderSettings(){$('#apiKey').value=apiKey;$('#voiceOther').value=P.voiceOther;$('#voiceYou').value=P.voiceYou;$('#textModel').value=P.textModel;
+  document.querySelectorAll('.chips[data-key]').forEach(g=>g.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',String(String(P[g.dataset.key])===c.dataset.v))));}
+$('#openSettings').onclick=()=>{renderSettings();setStatus('');show('settings');};
+$('#closeSettings').onclick=()=>{show('home');renderHome();};
+$('#saveKey').onclick=()=>{apiKey=$('#apiKey').value.trim();local.set('nl.key',apiKey);setStatus(apiKey?'キーを保存しました。「声を試す」で確認してください。':'キーを消しました。');};
+$('#testKey').onclick=async()=>{apiKey=$('#apiKey').value.trim();local.set('nl.key',apiKey);setStatus('音声を作っています…');
+  try{const u=await getAudioUrl({sp:'Pharmacist',en:'Hello! Can I help you with anything today?'});audio.src=u;audio.playbackRate=1;await audio.play();
+    const u2=await getAudioUrl({sp:'You',en:"Yes, I'm here to pick up a prescription."});setTimeout(()=>{audio.onended=null;audio.src=u2;audio.play().catch(()=>{});},2600);
+    setStatus('うまく動いています。相手の声のあと、自分の声が流れます。');}
+  catch(e){setStatus(apiErrText(e),true);}};
+$('#exportBtn').onclick=()=>{$('#backupBox').value=JSON.stringify({P,userEps});$('#backupBox').select();setStatus('書き出しました。全部コピーして、メモなどに保存してください。');};
+$('#importBtn').onclick=()=>{try{const d=JSON.parse($('#backupBox').value);if(!d.P)throw 0;Object.assign(P,d.P);userEps=Object.assign(userEps,d.userEps||{});saveProfile();saveEps();renderSettings();setStatus('読み込みました。');}catch(e){setStatus('読み込めませんでした。書き出した文字を全部貼り付けてください。',true);}};
+
+renderHome();
+})();
+</script>
+</body>
+</html>
