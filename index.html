@@ -294,14 +294,39 @@ function soundFailed(){stopAudio();markLine(-1);sStatus('音が出ませんで�
   const p=$('#prep');if(p){p.textContent=$('#sStatus').textContent;p.style.color='var(--warn)';}}
 function stopAudio(){runTok++;haltSound();hideLoop();}
 async function playLines(from,to){
-  hideLoop();const my=++runTok;haltSound();lockScreen();await sleep(250);
+  hideLoop();const my=++runTok;haltSound();lockScreen();S.mode='play';msState('playing');await sleep(250);
   for(let i=from;i<to;i++){if(my!==runTok)return;markLine(i);const ok=await speakLine(S.ep.lines[i],S.rate);if(my!==runTok)return;if(!ok){soundFailed();return;}await sleep(380);}
-  markLine(-1);
+  S.mode=null;markLine(-1);
+  if(P.drive&&to>=S.ep.lines.length){driveNext(my);}else msState('paused');
 }
-function hideLoop(){if(S)S.loop=null;$('#loopBar').hidden=true;}
+/* ---------- car / headset buttons (Media Session) & drive mode ---------- */
+function msState(st){try{if('mediaSession' in navigator)navigator.mediaSession.playbackState=st;}catch(e){}}
+function msMeta(){try{if(!('mediaSession' in navigator)||!S)return;const l=S.ep.lines[Math.max(0,S.pos||0)];
+  navigator.mediaSession.metadata=new MediaMetadata({title:S.ep.title,artist:(l?l.sp+': '+l.en:''),album:'ながらリスニング'});}catch(e){}}
+function msPos(){return S?Math.max(0,S.cur>=0?S.cur:(S.pos||0)):0;}
+function msPlay(){if(!S)return;if(S.mode)return;const i=msPos();if(S.paused&&S.paused.loop){loopForever(S.paused.loop);}else playLines(i>=S.ep.lines.length?0:i,S.ep.lines.length);S.paused=null;}
+function msPause(){if(!S)return;S.paused={loop:S.loop?S.loop.list:null};stopAudio();S.mode=null;msState('paused');sStatus('一時停止中（▶ で続きから）');}
+function msNext(){if(!S)return;const i=msPos();if(i+1>=S.ep.lines.length){if(P.drive)driveNext(runTok,true);return;}S.paused=null;playLines(i+1,S.ep.lines.length);}
+function msPrev(){if(!S)return;const i=msPos();S.paused=null;addMark(i);loopForever([i]);}
+try{if('mediaSession' in navigator){
+  navigator.mediaSession.setActionHandler('play',msPlay);
+  navigator.mediaSession.setActionHandler('pause',msPause);
+  navigator.mediaSession.setActionHandler('stop',msPause);
+  navigator.mediaSession.setActionHandler('nexttrack',msNext);
+  navigator.mediaSession.setActionHandler('previoustrack',msPrev);
+}}catch(e){}
+function nextEpisode(ep){
+  const all=allEps();const favs=all.filter(e=>P.favs[e.id]);const list=favs.length&&P.favs[ep.id]?favs:all.filter(e=>e.topic===ep.topic);
+  const k=list.findIndex(e=>e.id===ep.id);return list[(k+1)%list.length]||all[0];}
+async function driveNext(my,force){
+  if(!S)return;const ep=S.ep;const prev=P.progress[ep.id]||{};
+  P.progress[ep.id]={done:true,at:Date.now(),hard:[...S.marked],count:(prev.done?(prev.count||1):0)+1};saveProfile();
+  const nx=nextEpisode(ep);sStatus('次の回へ進みます：'+nx.titleJa);await sleep(force?300:2500);
+  if(!S||(!force&&my!==runTok))return;openEpisode(nx);playLines(0,nx.lines.length);}
+function hideLoop(){if(S){S.loop=null;S.mode=null;}$('#loopBar').hidden=true;}
 async function loopForever(list){
   hideLoop();const my=++runTok;haltSound();lockScreen();
-  S.loop={list};$('#loopBar').hidden=false;$('#loopPrev').hidden=list.length>1;
+  S.loop={list};S.mode='loop';msState('playing');$('#loopBar').hidden=false;$('#loopPrev').hidden=list.length>1;
   $('#loopNext').textContent=list.length>1?'やめる ▶':'次の文 ▶';
   renderSpeed();await sleep(120);let k=0;
   while(my===runTok){
@@ -383,7 +408,7 @@ let S=null;
 function sStatus(t,err){const el=$('#sStatus');el.textContent=t;el.classList.toggle('err',!!err);}
 function openEpisode(ep){
   const pr=P.progress[ep.id]||{};
-  S={ep,rate:P.rate,cur:-1,showJa:P.showJa!==false,marked:new Set(pr.hard||[]),loop:null};
+  S={ep,rate:P.rate,cur:-1,pos:0,mode:null,paused:null,showJa:P.showJa!==false,marked:new Set(pr.hard||[]),loop:null};
   show('session');window.scrollTo(0,0);$('#sTitle').textContent=ep.title;renderFav();render();prefetch(ep);
 }
 async function prefetch(ep){
@@ -407,17 +432,19 @@ function render(){
     return `<div class="line${i===S.cur?' cur':''}${S.marked.has(i)?' hard':''}" data-i="${i}" tabindex="0"><span class="sp">${S.marked.has(i)?'★ ':''}${esc(l.sp)}</span><span class="en">${hl(l.en,fx)}</span>${S.showJa&&l.ja?`<span class="ja">${esc(l.ja)}</span>`:''}${fx.map(f=>`<span class="fx"><b>${esc(f.phrase)}</b> → ${esc(f.sound)}　${esc(f.note)}</span>`).join('')}</div>`;}).join('');
   $('#stage').innerHTML=`<p class="small muted" style="margin:0">行をタップすると、その文を止めるまでくり返します（★が付きます）。<mark class="ph">下線</mark>は音がつながる所です。</p>
     <p class="prep" id="prep" style="margin:0"></p>
-    <div class="row"><button class="btn primary" id="playAll" type="button">▶ 全部聞く</button>${S.marked.size?`<button class="btn primary" id="playHard" type="button">★の文だけ（${S.marked.size}）</button>`:''}<button class="btn" id="stopB" type="button">■</button><button class="chip" id="jaT" type="button" aria-pressed="${S.showJa}">和訳</button></div>
+    <div class="row"><button class="btn primary" id="playAll" type="button">▶ 全部聞く</button>${S.marked.size?`<button class="btn primary" id="playHard" type="button">★の文だけ（${S.marked.size}）</button>`:''}<button class="btn" id="stopB" type="button">■</button><button class="chip" id="jaT" type="button" aria-pressed="${S.showJa}">和訳</button><button class="chip" id="driveT" type="button" aria-pressed="${!!P.drive}">🚗 ドライブ</button></div>
+    ${P.drive?'<p class="small muted" style="margin:0">ドライブモード：最後まで聞くと次の回へ自動で進みます。ハンドル／イヤホンのボタン：⏯ 再生・一時停止、⏭ 次の文、⏮ 今の文をくり返す。</p>':''}
     <div class="script">${lines}</div>
     <button class="btn big" id="doneB" type="button">おわり（一覧に戻る）</button>`;
   $('#playAll').onclick=()=>playLines(0,S.ep.lines.length);
   if($('#playHard'))$('#playHard').onclick=()=>loopForever([...S.marked].sort((a,b)=>a-b));
-  $('#stopB').onclick=()=>{stopAudio();markLine(-1);};
+  $('#stopB').onclick=()=>{stopAudio();S.paused=null;msState('paused');markLine(-1);};
   $('#jaT').onclick=()=>{S.showJa=!S.showJa;P.showJa=S.showJa;saveProfile();render();};
+  $('#driveT').onclick=()=>{P.drive=!P.drive;saveProfile();render();};
   $('#doneB').onclick=finish;
   document.querySelectorAll('.line').forEach(el=>{const f=()=>{const i=Number(el.dataset.i);addMark(i);loopForever([i]);};el.onclick=f;el.onkeydown=e=>{if(e.key==='Enter')f();};});
 }
-function markLine(i){if(!S)return;S.cur=i;document.querySelectorAll('.line').forEach(el=>el.classList.toggle('cur',Number(el.dataset.i)===i));
+function markLine(i){if(!S)return;S.cur=i;if(i>=0){S.pos=i;msMeta();}document.querySelectorAll('.line').forEach(el=>el.classList.toggle('cur',Number(el.dataset.i)===i));
   const el=document.querySelector('.line.cur');if(el)el.scrollIntoView({block:'center',behavior:'smooth'});}
 function finish(){const ep=S.ep;const prev=P.progress[ep.id]||{};
   P.progress[ep.id]={done:true,at:Date.now(),hard:[...S.marked],count:(prev.done?(prev.count||1):0)+1};saveProfile();homeStatus('おつかれさまでした。');closeSession();}
