@@ -94,6 +94,7 @@
       <tr><td>「前」「戻って」</td><td>前の問題へ</td></tr>
       <tr><td>「1番から20番」</td><td>出題する範囲を決める（スタート直後に聞かれます。いつ言っても可）</td></tr>
       <tr><td>「30番」</td><td>その番号の問題へ移動</td></tr>
+      <tr><td>「これは何グラムですか、を追加して」</td><td>AIが英文を作って読み上げ、「はい」で新しい番号に登録</td></tr>
       <tr><td>「答え」「わからない」</td><td>すぐ答えを読む</td></tr>
       <tr><td>「なんでisなの？areじゃないの？」</td><td>AIの先生が日本語で短く説明（「どうして」「違いは」「意味」「似た問題」「他の言い方」なども可）</td></tr>
       <tr><td>「もう一回」</td><td>答えをもう一度読む</td></tr>
@@ -117,11 +118,13 @@
       <div style="flex:0 0 90px"><label>番号</label><input id="fNo" type="number" inputmode="numeric"></div>
       <div></div>
     </div>
+    <p class="small">日本語だけ入れて「AIで英文を作る」を押すと、英文を作ります。練習中なら「〜を追加して」と声で頼むこともできます。</p>
     <label>日本語</label><textarea id="fJa" style="min-height:60px"></textarea>
     <label>英語</label><textarea id="fEn" style="min-height:60px"></textarea>
     <div class="row" style="margin-top:10px">
       <button class="btn pri" id="saveItem">追加する</button>
       <button class="btn" id="cancelEdit" style="display:none">やめる</button>
+      <button class="btn" id="aiFill">🤖 AIで英文を作る</button>
       <button class="btn" id="testEn">🔊 英語を試聴</button>
     </div>
   </div>
@@ -152,6 +155,15 @@
 
 <!-- ===== 設定 ===== -->
 <section id="set">
+  <div class="card">
+    <b>アプリを直したいとき</b>
+    <p class="small">このアプリを作ったClaudeの会話を開きます。直してほしいことを書けば、続きから対応します。会話が開けないときは、下の「依頼文をコピー」を押して、新しいClaudeの会話に貼り付けてください。</p>
+    <div class="row">
+      <a class="btn pri" href="https://claude.ai/code/session_01WU4SjdPfTGTaANCMbwbQo8" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">🛠 Claudeに修正を頼む</a>
+      <button class="btn" id="copyReq">依頼文をコピー</button>
+    </div>
+    <textarea id="reqArea" style="display:none;margin-top:8px" readonly></textarea>
+  </div>
   <div class="card">
     <b>英語の声</b>
     <label>読み上げエンジン</label>
@@ -378,6 +390,8 @@ function listenWindow(ms, kind){
 function onHeard(text){
   if(!curWin) return;
   if(curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
+  if(curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); return; }
+  if(S.key && isAddRequest(text)){ curWin.finish({type:"cmd", cmd:{type:"add", q:text}}); return; }
   if(S.key && isQuestion(text) && curWin.kind!=="range"){ curWin.finish({type:"cmd", cmd:{type:"ask", q:text}}); return; }
   const cmd = parseCommand(text);
   if(cmd) curWin.finish({type:"cmd", cmd});
@@ -460,7 +474,9 @@ const aiMic = {
     $("#heard").textContent = "🎤 " + text;
     if(speakingJa && normJ(text).length >= 2 && normJ(speakingJa).includes(normJ(text))) return;  // 自分の問題の読み上げを拾ったもの
     if(curWin && curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
+    if(curWin && curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); else { const c = parseCommand(text); if(c && c.type==="stop") sendCmd(c); } return; }
     if(shadowing && !parseCommand(text)) return;
+    if(S.key && isAddRequest(text)){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"add", q:text}); return; }
     if(S.key && isQuestion(text) && (!curWin || curWin.kind!=="range")){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"ask", q:text}); return; }
     const cmd = parseCommand(text);
     if(cmd){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd(cmd); return; }
@@ -496,6 +512,30 @@ async function askAI(it, q){
   }
   return "";
 }
+
+/* ---------- 声で例文を追加 ---------- */
+const ADD_CUE = /追加|登録|覚えたい|入れておいて|入れといて/;
+function isAddRequest(text){ return /[ぁ-んァ-ン一-龥]/.test(text) && ADD_CUE.test(text) && text.replace(/\s/g,"").length > 5; }
+let addReq = "", addDraft = null;
+async function makeEntry(req){
+  const sys = `The user (a Japanese businessperson living in the Netherlands, working in seafood trading) wants to register a practice sentence for English speaking drills.
+From the user's request, extract the Japanese sentence they want to learn, and give natural, polite but simple spoken English for it (the way a native speaker would actually say it in that situation).
+If the user already said the English, use theirs (fix only clear mistakes). Remove words like 「追加して」「登録して」 from the Japanese.
+Return JSON only: {"ja":"Japanese sentence","en":"English sentence"}`;
+  for(const model of ["gpt-4.1-mini", "gpt-4o-mini"]){
+    try{
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST",
+        headers:{Authorization:"Bearer " + S.key, "Content-Type":"application/json"},
+        body: JSON.stringify({model, temperature:0.2, response_format:{type:"json_object"},
+          messages:[{role:"system", content:sys}, {role:"user", content:req}]})});
+      if(!r.ok) continue;
+      const j = await r.json(); const g = JSON.parse(j.choices[0].message.content);
+      if(g.ja && g.en) return {ja:String(g.ja).trim(), en:String(g.en).trim()};
+    }catch(e){ console.warn(e); }
+  }
+  return null;
+}
+const NO = /^(いいえ|いや|やめ|キャンセル|ちがう|違う|no|ノー|だめ|ダメ)/;
 
 /* ---------- AIで正誤判定 ---------- */
 async function judgeAnswer(it, said){
@@ -617,6 +657,7 @@ function applyCmd(c, phase){
     case "stop": running = false; return "stop";
     case "jump": jumpNo = c.no; return "jump";
     case "ask": askQ = c.q; return "ask";
+    case "add": addReq = c.q; return "add";
     case "range": return setRange(c.a, c.b) ? "question" : (phase==="range" ? "askrange" : "question");
   }
   return "next";
@@ -688,6 +729,42 @@ async function loop(){
       action = "question"; continue;
     }
     if(action==="prev"){ pos = Math.max(0, pos-1); action = "question"; continue; }
+    if(action==="add"){
+      setStatus("🤖 英文を作っています…");
+      const g = await makeEntry(addReq);
+      if(!running) break;
+      if(!g){ await speakJa("すみません、うまく作れませんでした。"); action = "afteradd"; continue; }
+      const dup = items.find(x=>normJ(x.ja)===normJ(g.ja));
+      if(dup){
+        $("#verdict").innerHTML = '<span class="small">📌 ' + dup.no + "番に登録済み：" + esc(dup.ja) + " / " + esc(dup.en) + "</span>";
+        await speakJa("これは、もう" + dup.no + "番に登録されています。"); if(!running) break;
+        action = "afteradd"; continue;
+      }
+      const no = nextNo();
+      $("#verdict").innerHTML = '<span class="small">➕ ' + no + "番に登録しますか？<br>" + esc(g.ja) + "<br>" + esc(g.en) + "</span>";
+      await speakJa(no + "番に登録します。" + g.ja); if(!running) break;
+      await speakEn(g.en); if(!running) break;
+      await speakJa("よければ、はい。やめるなら、いいえ。"); if(!running) break;
+      setStatus("🎤「はい」で登録／「いいえ」でやめる");
+      const w = await listenWindow(Infinity, "confirm");
+      if(!running) break;
+      if(w.type==="yes"){
+        items.push({no, ja:g.ja, en:g.en}); saveItems();
+        if(S.engine==="openai" && S.key) getTTS(g.en).catch(()=>{});
+        $("#verdict").innerHTML = '<span class="ok">✅ ' + no + "番に登録しました</span><br><span class=\"small\">" + esc(g.ja) + " / " + esc(g.en) + "</span>";
+        await speakJa(no + "番に登録しました。");
+      } else { $("#verdict").innerHTML = ""; await speakJa("登録をやめました。"); }
+      if(!running) break;
+      action = "afteradd"; continue;
+    }
+    if(action==="afteradd"){
+      let w;
+      if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
+      else { setStatus("🎤「次」で練習に戻る（「問題」で今の問題をもう一度）"); w = await listenWindow(Infinity, "after"); }
+      if(!running) break;
+      action = w.type==="cmd" ? applyCmd(w.cmd, "answer") : "next";
+      continue;
+    }
     if(action==="ask"){
       setStatus("🤖 考え中…（質問：" + askQ + "）");
       const ans = await askAI(cur(), askQ);
@@ -845,6 +922,21 @@ $("#items").onclick = e=>{
 $("#search").oninput = renderList;
 $("#cancelEdit").onclick = resetForm;
 $("#testEn").onclick = ()=>{ const t = $("#fEn").value.trim(); if(t) speakEn(t); };
+$("#aiFill").onclick = async ()=>{
+  const ja = $("#fJa").value.trim(), en = $("#fEn").value.trim();
+  if(!ja && !en){ toast("日本語を入れてください"); return; }
+  if(!S.key){ toast("設定でOpenAI APIキーを入れてください"); return; }
+  $("#aiFill").textContent = "作成中…";
+  const g = await makeEntry(ja + (en ? " / " + en : ""));
+  $("#aiFill").textContent = "🤖 AIで英文を作る";
+  if(!g){ toast("作れませんでした"); return; }
+  $("#fJa").value = g.ja; $("#fEn").value = g.en; toast("確認して「追加する」を押してください");
+};
+$("#copyReq").onclick = async ()=>{
+  const t = "英作文ドライブ練習アプリを直したいです。\n公開URL: https://naachi0116-droid.github.io/Listening/eigo/\nファイル: GitHub naachi0116-droid/Listening の eigo/index.html\n直したいこと：";
+  try{ await navigator.clipboard.writeText(t); toast("コピーしました。Claudeに貼り付けて、続きを書いてください"); }
+  catch(e){ const a = $("#reqArea"); a.style.display = "block"; a.value = t; a.select(); toast("下の文字を長押ししてコピーしてください"); }
+};
 $("#saveItem").onclick = ()=>{
   const no = +$("#fNo").value || nextNo(), ja = $("#fJa").value.trim(), en = $("#fEn").value.trim();
   if(!ja || !en){ toast("日本語と英語の両方を入れてください"); return; }
