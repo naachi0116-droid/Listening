@@ -376,7 +376,7 @@ function setProg(p, txt){ $("#prog").style.display = p===null ? "none" : "block"
 async function transcribeChunk(blob, prompt){
   for(const model of ["whisper-1", "gpt-transcribe"]){
     const fd = new FormData(); fd.append("file", blob, "a.wav"); fd.append("model", model);
-    fd.append("response_format", "verbose_json"); fd.append("timestamp_granularities[]", "segment"); fd.append("language", "en");
+    fd.append("response_format", "verbose_json"); fd.append("timestamp_granularities[]", "segment");
     if(prompt) fd.append("prompt", prompt.slice(-400));
     const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer "+S.key}, body:fd});
     if(r.ok){ const j = await r.json(); if(j.segments) return j.segments; }
