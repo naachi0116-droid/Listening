@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>英作文ドライブ練習</title>
+<style>
+  :root{--bg:#101418;--card:#1b2229;--line:#2c3742;--tx:#eef2f5;--sub:#9aa8b5;--ac:#3fb6ff;--ok:#4fd18b;--warn:#ffb547;--ng:#ff6b6b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:17px;line-height:1.5}
+  header{display:flex;gap:6px;padding:10px 10px 0;position:sticky;top:0;background:var(--bg);z-index:5}
+  header button{flex:1;padding:12px 4px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--sub);font-size:16px;font-weight:600}
+  header button.on{background:var(--ac);color:#04121d;border-color:var(--ac)}
+  main{padding:12px 12px 40px;max-width:720px;margin:0 auto}
+  section{display:none}section.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  label{display:block;color:var(--sub);font-size:14px;margin:8px 0 4px}
+  input,select,textarea{width:100%;padding:11px;border-radius:9px;border:1px solid var(--line);background:#0c1013;color:var(--tx);font-size:17px;font-family:inherit}
+  textarea{min-height:90px}
+  .row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1}
+  .btn{display:inline-block;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:#26313b;color:var(--tx);font-size:16px;font-weight:600;cursor:pointer}
+  .btn.pri{background:var(--ac);color:#04121d;border-color:var(--ac)}
+  .btn.ng{background:#3a2024;border-color:#6b2d34;color:#ffc9c9}
+  .btn.big{width:100%;padding:20px;font-size:22px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .grid .btn{padding:16px 4px;font-size:17px}
+  #no{color:var(--ac);font-weight:800;font-size:20px}
+  #ja{font-size:26px;font-weight:700;margin:6px 0 10px}
+  #en{font-size:24px;color:var(--ok);min-height:36px}
+  #en.hide{color:transparent;text-shadow:0 0 14px rgba(79,209,139,.5)}
+  #status{font-size:16px;color:var(--warn);min-height:24px}
+  #heard{font-size:14px;color:var(--sub);min-height:20px}
+  .small{font-size:13px;color:var(--sub)}
+  .item{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .item:last-child{border-bottom:0}
+  .item .n{color:var(--ac);font-weight:800;min-width:34px}
+  .item .t{flex:1}.item .t .e{color:var(--ok)}
+  .item .ops{display:flex;flex-direction:column;gap:4px}
+  .item .ops button{padding:6px 10px;font-size:13px;border-radius:7px;border:1px solid var(--line);background:#26313b;color:var(--tx)}
+  table.cmd{width:100%;border-collapse:collapse;font-size:14px}
+  table.cmd td{padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.cmd td:first-child{color:var(--warn);white-space:nowrap}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;background:#26313b;font-size:14px;margin-left:6px}
+  #msg{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#26313b;border:1px solid var(--line);padding:10px 16px;border-radius:10px;display:none;z-index:9}
+</style>
+</head>
+<body>
+<header>
+  <button data-tab="play" class="on">練習</button>
+  <button data-tab="list">例文</button>
+  <button data-tab="set">設定</button>
+</header>
+<main>
+
+<!-- ===== 練習 ===== -->
+<section id="play" class="on">
+  <div class="card" id="setup">
+    <div class="row">
+      <div><label>何番から</label><input id="from" type="number" inputmode="numeric" value="1"></div>
+      <div><label>何番まで</label><input id="to" type="number" inputmode="numeric" value="20"></div>
+      <div><label>順番</label><select id="order"><option value="seq">番号順</option><option value="rnd">ランダム</option></select></div>
+    </div>
+    <div style="margin-top:12px"><button class="btn pri big" id="startBtn">▶ スタート</button></div>
+    <p class="small" id="micNote"></p>
+  </div>
+
+  <div class="card">
+    <div><span id="no">—</span><span class="pill" id="rateP">1.0x</span><span class="pill" id="posP"></span></div>
+    <div id="ja">スタートを押してください</div>
+    <div id="en" class="hide"></div>
+    <div id="status"></div>
+    <div id="heard"></div>
+  </div>
+
+  <div class="grid" id="ctrl">
+    <button class="btn" data-cmd="prev">◀ 前</button>
+    <button class="btn" data-cmd="pausetoggle" id="pauseBtn">⏸ ストップ</button>
+    <button class="btn" data-cmd="next">次 ▶</button>
+    <button class="btn" data-cmd="again">もう一回</button>
+    <button class="btn" data-cmd="ten">10回読む</button>
+    <button class="btn" data-cmd="answer">答え</button>
+    <button class="btn" data-cmd="slower">🐢 遅く</button>
+    <button class="btn" data-cmd="normal">普通</button>
+    <button class="btn" data-cmd="faster">🐇 早く</button>
+  </div>
+  <div style="margin-top:8px"><button class="btn ng" style="width:100%" data-cmd="stop">■ 練習を終わる</button></div>
+
+  <div class="card" style="margin-top:12px">
+    <b>声で言えること</b>
+    <table class="cmd">
+      <tr><td>「次」「スキップ」</td><td>次の問題へ</td></tr>
+      <tr><td>「前」「戻って」</td><td>前の問題へ</td></tr>
+      <tr><td>「答え」「わからない」</td><td>すぐ答えを読む</td></tr>
+      <tr><td>「もう一回」</td><td>答えをもう一度読む</td></tr>
+      <tr><td>「10回」「5回読んで」</td><td>答えをその回数くり返す（シャドーイング用）</td></tr>
+      <tr><td>「早く」「遅く」「ゆっくり」</td><td>英語の速さを0.1ずつ変えて読み直す</td></tr>
+      <tr><td>「普通の速さ」</td><td>速さを1.0に戻す</td></tr>
+      <tr><td>「問題」</td><td>日本語をもう一度読む</td></tr>
+      <tr><td>「ストップ」「待って」</td><td>一時停止（「再開」で続き）</td></tr>
+      <tr><td>「終わり」</td><td>練習を終える</td></tr>
+    </table>
+    <p class="small">英語の答えを言い終わると、自動で正解が流れます。黙っていても設定の秒数がたつと正解が流れます。</p>
+  </div>
+</section>
+
+<!-- ===== 例文 ===== -->
+<section id="list">
+  <div class="card">
+    <b id="formTitle">例文を追加</b>
+    <div class="row">
+      <div style="flex:0 0 90px"><label>番号</label><input id="fNo" type="number" inputmode="numeric"></div>
+      <div></div>
+    </div>
+    <label>日本語</label><textarea id="fJa" style="min-height:60px"></textarea>
+    <label>英語</label><textarea id="fEn" style="min-height:60px"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="btn pri" id="saveItem">追加する</button>
+      <button class="btn" id="cancelEdit" style="display:none">やめる</button>
+      <button class="btn" id="testEn">🔊 英語を試聴</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>まとめて取り込む</b>
+    <p class="small">1行に「番号. 日本語 / 英語」の形で貼り付けます。区切りは「/」「|」「→」「—」タブのどれでも可。日本語の行の次の行に英語、という2行ずつの形でも読めます。番号がなければ最後の番号の続きになります。</p>
+    <textarea id="bulk" placeholder="1. タクシーを呼んでください / Could you call a taxi for me?&#10;2. 少し考えさせてください / Let me think about it for a moment."></textarea>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--tx)"><input type="checkbox" id="bulkReplace" style="width:auto"> 同じ番号があれば上書きする</label>
+    <div class="row" style="margin-top:8px"><button class="btn pri" id="bulkBtn">取り込む</button></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="align-items:center"><b>登録済み <span id="count"></span></b>
+      <input id="search" placeholder="検索" style="flex:1.4"></div>
+    <div id="items"></div>
+  </div>
+
+  <div class="card">
+    <b>バックアップ</b>
+    <p class="small">例文はこのスマホのブラウザの中に保存されます。機種変更やブラウザのデータ削除に備えて、ときどきバックアップしてください。書き出した文字は上の「まとめて取り込む」にそのまま貼れば戻せます。</p>
+    <div class="row"><button class="btn" id="expCopy">文字でコピー</button><button class="btn" id="expFile">ファイルに保存</button></div>
+    <textarea id="expArea" style="display:none;margin-top:8px" readonly></textarea>
+    <p class="small" style="margin-top:12px">Googleドライブの登録文（1〜203番）はアプリに入っています。消してしまったときは下のボタンで、足りない番号だけ戻せます。</p>
+    <button class="btn" id="restoreStarter">登録文（1〜203番）を戻す</button>
+  </div>
+</section>
+
+<!-- ===== 設定 ===== -->
+<section id="set">
+  <div class="card">
+    <b>英語の声</b>
+    <label>読み上げエンジン</label>
+    <select id="sEngine">
+      <option value="browser">スマホ内蔵の声（無料）</option>
+      <option value="openai">OpenAI の声（有料・いちばん自然）</option>
+    </select>
+    <div id="browserBox">
+      <label>声の種類（英語）</label><select id="sVoice"></select>
+      <p class="small">「Google」「Natural」「Neural」と付いた声が自然です。Samsungの場合、設定 → 一般管理 → テキスト読み上げ で「Google 音声サービス」を選ぶと声がよくなります。</p>
+    </div>
+    <div id="openaiBox" style="display:none">
+      <label>OpenAI APIキー</label><input id="sKey" type="password" placeholder="sk-...">
+      <label>声</label>
+      <select id="sOVoice">
+        <option>alloy</option><option>ash</option><option>coral</option><option>echo</option><option>fable</option>
+        <option>nova</option><option>onyx</option><option>sage</option><option>shimmer</option>
+      </select>
+      <p class="small">キーはこのスマホの中だけに保存されます。同じ文は一度作った音声を使い回すので、料金はごくわずかです。</p>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="sTest">🔊 試聴</button></div>
+  </div>
+
+  <div class="card">
+    <b>進め方</b>
+    <div class="row">
+      <div><label>考える時間（秒）</label><input id="sThink" type="number" step="1" min="1"></div>
+      <div><label>答えの後の間（秒）</label><input id="sAfter" type="number" step="1" min="0"></div>
+    </div>
+    <div class="row">
+      <div><label>答えを読む回数</label><input id="sRep" type="number" min="1" max="30"></div>
+      <div><label>くり返しの間（秒・0=自動）</label><input id="sGap" type="number" step="0.5" min="0"></div>
+    </div>
+    <div class="row">
+      <div><label>英語の速さ</label><input id="sRate" type="number" step="0.1" min="0.5" max="1.8"></div>
+      <div><label>最後まで行ったら</label><select id="sLoop"><option value="0">終わる</option><option value="1">最初に戻る</option></select></div>
+    </div>
+    <p class="small">「くり返しの間」が0のときは、英文の長さと同じくらいの間をあけます（後について言う時間）。</p>
+  </div>
+</section>
+</main>
+<div id="msg"></div>
+
+<script>
+"use strict";
+/* ---------- 保存 ---------- */
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){ toast("保存できませんでした"); } }
+};
+const STARTER = [{"no": 1, "ja": "それについてどう思いますか？", "en": "What do you think about it?"}, {"no": 2, "ja": "今週の貝毒検査の結果はまだ出ていません。", "en": "The results of this week’s shellfish toxin test are not available yet."}, {"no": 3, "ja": "今週末までに結果を受け取る見込みです。", "en": "We expect to receive the results by the end of this week."}, {"no": 4, "ja": "以下の内容でよろしいでしょうか？", "en": "Would the following be okay?"}, {"no": 5, "ja": "書類をどこに、どのように送ればよいか確認したいです。以下の内容でよろしいでしょうか？", "en": "I would like to confirm where to and how to send the documents. Would the following be OK?"}, {"no": 6, "ja": "私は添付の保険プランに加入しています。", "en": "I am covered by the insurance plan attached."}, {"no": 7, "ja": "準備ができ次第、詳細をお送りします。", "en": "Once it’s ready, we expect to send the details to you."}, {"no": 8, "ja": "メールを転送していただきありがとうございます。", "en": "Thank you for forwarding the email."}, {"no": 9, "ja": "何度もすみません。／またお手数をおかけしてすみません。", "en": "Sorry to bother you again."}, {"no": 10, "ja": "今回の手配にはこの情報が必要なようです。", "en": "It seems that this information is required for this arrangement."}, {"no": 11, "ja": "解凍 → フィーレ加工 → 3％塩水に1時間漬ける → 水切り → たれを塗る → 真空包装 → 一晩漬け込む → 翌日冷凍 → カートン詰め", "en": "Thawing → Filleting → Soaking in 3% salt water for 1 hour → Draining → Applying the sauce → Vacuum packing → Marinating overnight → Freezing the next day → Packing into cartons"}, {"no": 12, "ja": "たれを塗る際に、下記のシートを使用した方がよいか試してみたいです。", "en": "We would like to test whether it would be better to use the sheet shown below when applying the sauce."}, {"no": 13, "ja": "下記のようなへらを使うのはいかがでしょうか？", "en": "How about using a spatula like the one shown below?"}, {"no": 14, "ja": "製品配合／製品の配合", "en": "Product Formulation"}, {"no": 15, "ja": "下記に記載されている商品は、過去にNordicへ納品された商品でしょうか？", "en": "Were the products listed below supplied to Nordic in the past?"}, {"no": 16, "ja": "上記に記載された商品以外については、アートワークとパッケージがまだ確定していないため、残念ながら次のコンテナには間に合いません。", "en": "For products other than those listed above, the artwork and packaging have not yet been finalized, so unfortunately they will not be ready in time for the next container."}, {"no": 17, "ja": "本日は3点について打ち合わせしたいです。", "en": "Today, I would like to discuss three points with you."}, {"no": 18, "ja": "承知しました。明日までにすべての書類を準備できるか確認します。", "en": "Understood. I will check if we can prepare all the documents by tomorrow."}, {"no": 19, "ja": "手配はOKと伝えましたが、すべての書類を確認して問題がない場合に限り、現在の日程で進められるとのことです。", "en": "I said the arrangement was OK, but I was informed that the current schedule is only possible if there are no issues after checking all the documents."}, {"no": 20, "ja": "～だからだと思います。", "en": "I think it’s because ～."}, {"no": 21, "ja": "だから～なんです。／それが～の理由です。", "en": "That’s why ～."}, {"no": 22, "ja": "それならうまくいくと思います。／それならいけると思います。", "en": "It should work."}, {"no": 23, "ja": "あまりうまくいっていない／あまり調子が良くない", "en": "not doing so well"}, {"no": 24, "ja": "ときどき／たまに", "en": "now and then"}, {"no": 25, "ja": "安心しました／ほっとしました。", "en": "I’m relieved. / I am relieved."}, {"no": 26, "ja": "間に入る／割って入る", "en": "get in between"}, {"no": 27, "ja": "今は～なので／～となった今では", "en": "now that ～"}, {"no": 28, "ja": "一日を通して／一日かけて／一日の間に随時", "en": "throughout the day"}, {"no": 29, "ja": "これらの数値には差異があるようです。", "en": "There seems to be a difference between these figures."}, {"no": 30, "ja": "前日にオランダに到着しますか？", "en": "Will you arrive in the Netherlands the day before?"}, {"no": 31, "ja": "～すればするほど良い／～が多ければ多いほど良い", "en": "The more ..., the better. 例: The more info we can get, the better."}, {"no": 32, "ja": "問題がなければ、必要な書類を入手し、それに応じてお送りします。", "en": "If there are no issues, we will obtain the necessary documents and send them to you accordingly."}, {"no": 33, "ja": "予約は9時30分ですが、ここで待っていても問題ないですか？", "en": "My appointment is at 9:30. Is it okay if I wait here?"}, {"no": 34, "ja": "先ほど送った書類に何か問題はありますか？", "en": "Are there any issues with the documents I sent earlier?"}, {"no": 35, "ja": "取引が確定し、為替予約も完了しました。", "en": "We have finalized the deal and have also booked the exchange rate."}, {"no": 36, "ja": "（おそらくニッスイです。）", "en": "(most likely Nissui)."}, {"no": 37, "ja": "何かやるべきことはありますか？", "en": "Is there anything I should do?"}, {"no": 38, "ja": "配送時間が指定時間から大幅にずれる場合、荷下ろしに時間がかかる可能性がありますのでご注意ください。", "en": "Please note that if the delivery time differs significantly from the designated time, it may take longer to unload."}, {"no": 39, "ja": "トラッキングナンバーについてのご返信をお待ちしております。", "en": "I look forward to receiving your reply regarding the tracking number."}, {"no": 40, "ja": "承知しました。改めて運送会社にこのことを念押しします。", "en": "Understood. I will make sure to remind the haulier about this again."}, {"no": 41, "ja": "すべてうまくいくことを願っています。", "en": "I hope everything goes well."}, {"no": 42, "ja": "なんで修理しないんですかね？", "en": "Why don’t they fix it?"}, {"no": 43, "ja": "甘エビについて、工場に確認したところ、昨日私が提示した価格でオファー可能とのことでした。", "en": "Regarding the Ama Ebi, I have confirmed with the factory that they are able to offer it at the price I quoted yesterday."}, {"no": 44, "ja": "9月22日から24日の間で、8時から10時の間に納品可能な日を教えていただけますか？", "en": "Could you please let me know which date between 22 and 24 September would be possible for delivery between 8 and 10 o’clock?"}, {"no": 45, "ja": "以前GP宛に、日本で受けた肺機能検査の結果をお送りしました。その時の結果と今回の結果を比較すると、症状は悪化しているでしょうか？", "en": "I previously sent the GP the results of the lung function test I had in Japan. Compared with those results, has my condition gotten worse?"}, {"no": 46, "ja": "私は、喘息の症状が悪化していることを病院に相談したいです。", "en": "I would like to consult the hospital about my worsening asthma symptoms."}, {"no": 47, "ja": "この文章を見てもらえませんか？", "en": "Could you take a look at this sentence?"}, {"no": 48, "ja": "私たちは正午に昼休憩を取りました。", "en": "We took a lunch break at noon."}, {"no": 49, "ja": "そのイベントは体育館で行われます。", "en": "The event will be held in the gym."}, {"no": 50, "ja": "私はオランダでの生活にだんだん慣れてきています。", "en": "I'm getting used to living in the Netherlands."}, {"no": 51, "ja": "来週、会議を開催します。", "en": "We will host a meeting next week."}, {"no": 52, "ja": "その会社の担当者が会議に出席します。", "en": "A representative from the company will attend the meeting."}, {"no": 53, "ja": "ご要望に対応できます。", "en": "We can accommodate your request."}, {"no": 54, "ja": "私がやっておきます。", "en": "I'll take care of it."}, {"no": 55, "ja": "その問題には私が対処します。", "en": "I'll deal with the issue."}, {"no": 56, "ja": "これから忙しい一週間になりそうです。", "en": "We have a busy week ahead."}, {"no": 57, "ja": "これから多くの課題があります。", "en": "There are many challenges ahead."}, {"no": 58, "ja": "私たちの前にトラックがいます。", "en": "There is a truck ahead of us."}, {"no": 59, "ja": "微生物検査", "en": "microbiological testing"}, {"no": 60, "ja": "これまで本社はJPYで価格を提示していましたが、今回の出荷からEURで価格を提示しています。", "en": "Until now, our HQ has quoted prices in JPY, but starting with this shipment, they have quoted the price in EUR."}, {"no": 61, "ja": "その間、私たちのクラスがなぜ特別なのか、ウェブサイトでぜひ詳しくご覧ください。", "en": "In the meantime, feel free to explore more about what makes our classes so special on our website."}, {"no": 62, "ja": "9月18日金曜日の午前9時30分で予約を取りたいです。", "en": "I would like to book the appointment for Friday, 18 September at 9:30 AM."}, {"no": 63, "ja": "オランダは、景色がとても綺麗なので、好きです。", "en": "I like the Netherlands because the scenery is beautiful."}, {"no": 64, "ja": "9月24日午前10時に、JFC Hollandへコンテナを配送する手配は可能でしょうか？", "en": "Would it be possible to arrange delivery of the container to JFC Holland on 24 September at 10:00 a.m.?"}, {"no": 65, "ja": "Diepvries Unitedのメールアドレスは以下の通りです。", "en": "The email address for Diepvries United is as follows:"}, {"no": 66, "ja": "通関は完了しましたでしょうか？本日引き取りに行っても大丈夫でしょうか？", "en": "Has customs clearance been completed? Would it be okay for me to pick it up today?"}, {"no": 67, "ja": "いつも助けてもらってすごく助かっています。返事も早いし、いろいろなことを教えてくれるし、本当に感謝しています。", "en": "Thank you so much for always helping me. I really appreciate your quick responses and all the useful information and advice you give me."}, {"no": 68, "ja": "すごく羨ましいです。", "en": "I'm really jealous."}, {"no": 69, "ja": "私はシーフードカンパニーで働いています。", "en": "I work for a seafood company."}, {"no": 70, "ja": "このデザートはとても美味しいです。", "en": "This dessert is very delicious."}, {"no": 71, "ja": "急な連絡で申し訳ありません。本日12時に銀だらのサンプルを引き取りに行ってもいいですか？", "en": "Sorry for the short notice. Can I pick up the black cod samples at 12 o'clock today?"}, {"no": 72, "ja": "この方針は来月から適用されます。", "en": "This policy will be applied starting from next month."}, {"no": 73, "ja": "何か不足している情報はありますか？", "en": "Is there any information missing?"}, {"no": 74, "ja": "KITAMIは今シーズン、EU市場向けに3コンテナを出荷する予定です。昨年は6コンテナを出荷したため、今年は数量が半減しています。", "en": "KITAMI plans to ship three containers to the EU market this season. Since they shipped six containers last year, the volume has decreased by half this year."}, {"no": 75, "ja": "ずっと／最後まで／完全にそこまで", "en": "all the way（all the way down = ずっと下まで／奥深くまで）"}, {"no": 76, "ja": "ジムを見学したいです。（案内してもらって見学する）", "en": "I'd like to take a tour of the gym."}, {"no": 77, "ja": "ジムの中を見て回ってもいいですか？（自分で見て回る）", "en": "Can I look around the gym?"}, {"no": 78, "ja": "クラスを見学しに来ました。（授業・クラスなどを見学する）", "en": "I'm here to observe the class."}, {"no": 79, "ja": "先日メールを送った近藤です。", "en": "I'm Kondo. I sent you an email the other day."}, {"no": 80, "ja": "今から事務所を出て、そちらに向かいます。", "en": "I'm leaving the office now and heading your way."}, {"no": 81, "ja": "飛行機に間に合いますか？", "en": "Will I make my flight?"}, {"no": 82, "ja": "必要であれば、ドライアイスを捨てられます。", "en": "If necessary, I can throw away the dry ice."}, {"no": 83, "ja": "ドライアイスは通常、飛行機に持ち込めないのですか？", "en": "Is dry ice normally not allowed on flights?"}, {"no": 84, "ja": "ドライアイスを持ち込むには、事前に予約が必要ということですか？", "en": "Do I need to book in advance if I take dry ice on board?"}, {"no": 85, "ja": "ドライアイスを取り除けば、この箱を預けられますか？", "en": "If I remove the dry ice, can I check in the box?"}, {"no": 86, "ja": "もしドライアイスを捨てていたら、その飛行機に乗れたのでしょうか？", "en": "If I had thrown away the dry ice, could I have taken the flight?"}, {"no": 87, "ja": "もし不在でしたら、サンプルを他の方に預けておいていただいても大丈夫です。", "en": "If you are not available, you can leave the sample with someone else."}, {"no": 88, "ja": "現在、たこ焼きの在庫がありません。", "en": "We currently do not have any Takoyaki in stock."}, {"no": 89, "ja": "会議の準備をする必要があります。", "en": "We need to get ready for the meeting."}, {"no": 90, "ja": "なぜこのキャリーバッグを機内に持ち込めないのですか？飛行機が満席だからですか？", "en": "Why can't I take this carry-on bag on board? Is it because the flight is full?"}, {"no": 91, "ja": "お水を1本いただけますか？", "en": "Can I have a bottle of water, please?"}, {"no": 92, "ja": "今承認しました。", "en": "I just approved it."}, {"no": 93, "ja": "複数のパッカーからオファーがありましたので、各社に確認してご連絡します。", "en": "I have received offers from several packers, so I will check with each of them and get back to you."}, {"no": 94, "ja": "少し息がしづらいです。", "en": "I'm having a little trouble breathing."}, {"no": 95, "ja": "今日の午後、改めてご連絡します。", "en": "I will revert to you this afternoon."}, {"no": 96, "ja": "めっちゃ気持ちいい。", "en": "It feels so good."}, {"no": 97, "ja": "会社に遅れそうです。", "en": "I'm going to be late for work."}, {"no": 98, "ja": "荷物を預けたいのですが、大丈夫ですか？", "en": "Could I leave my luggage here? Would that be okay?"}, {"no": 99, "ja": "あと3分で事務所に着きます。", "en": "I'll be at the office in three minutes."}, {"no": 100, "ja": "私は向かいの家の隣の家に住んでいます。", "en": "I live in the house next to the house across the street."}, {"no": 101, "ja": "エレベーターの調子がおかしいので、確認してください。", "en": "The elevator isn't working properly, so could you please check it?"}, {"no": 102, "ja": "遠くまで来ていただいてありがとうございました！", "en": "Thank you very much for coming all this way!"}, {"no": 103, "ja": "今から迎えに行ってもいいですか？うちの事務所は少し分かりにくいと思います。", "en": "Can I come and pick you up now? I think our office is a bit difficult to find."}, {"no": 104, "ja": "今、何階にいますか？", "en": "What floor are you on now?"}, {"no": 105, "ja": "電車に間に合わない。", "en": "I won't make the train."}, {"no": 106, "ja": "今日は人が少ないですね。", "en": "There aren't many people here today."}, {"no": 107, "ja": "今日は空いてますね。", "en": "It's not very busy today."}, {"no": 108, "ja": "絶対サン・セバスチャンに行きます。", "en": "I will definitely go to San Sebastián."}, {"no": 109, "ja": "予約時間に遅れていますが、それでも美術館に入れますか？", "en": "We’re late for our time slot, but can we still enter the museum?"}, {"no": 110, "ja": "店内でお願いします。", "en": "For here, please."}, {"no": 111, "ja": "持ち帰りでお願いします。", "en": "To go, please."}, {"no": 112, "ja": "搭乗するには搭乗券が必要です。", "en": "The boarding pass is mandatory for travel."}, {"no": 113, "ja": "買い手は現在長期休暇中のため、10月9日以降までご連絡できない可能性があります。", "en": "The buyer is currently on a long holiday, so I may not be able to get back to you until after October 9."}, {"no": 114, "ja": "以下の数量変更には同意してもらえると思います。", "en": "I believe they will agree to the following change in quantity."}, {"no": 115, "ja": "何時からチェックイン可能ですか？", "en": "From what time can I check in?"}, {"no": 116, "ja": "勝手に男の人だと思ってました。", "en": "I just assumed you were a man."}, {"no": 117, "ja": "オランダではよくこういうことありますよね。", "en": "This kind of thing happens a lot in the Netherlands, right?"}, {"no": 118, "ja": "塩とチーズを間違えて、たくさんかけてしまいました。", "en": "I mistook the salt for cheese and put a lot on."}, {"no": 119, "ja": "すみません、カフェラテを残してしまいました。", "en": "Sorry, I couldn't finish my café latte."}, {"no": 120, "ja": "タクシーを呼んでもらえますか？", "en": "Could you call a taxi for me?"}, {"no": 121, "ja": "めっちゃ勉強になります。", "en": "I'm learning so much!"}, {"no": 123, "ja": "すみません、まだですか？／もうできましたか？", "en": "Excuse me, is it ready yet?"}, {"no": 124, "ja": "あとどのくらいかかりますか？", "en": "Excuse me, how much longer will it take?"}, {"no": 125, "ja": "この料理はどのくらい時間がかかりますか？", "en": "How long will it take for this dish?"}, {"no": 126, "ja": "この魚の産地はどこですか？", "en": "Where is this fish from?"}, {"no": 127, "ja": "ここは初めてなんですけど／ここに来るのは初めてです", "en": "It's my first time here."}, {"no": 128, "ja": "日本の東京では通勤に長い時間がかかります。", "en": "It takes a long time to commute in Tokyo, Japan."}, {"no": 129, "ja": "良品と不良品を分けるのは、あなたにとってかなり手間がかかると思います。", "en": "I think it's a lot of work for you to separate good products from bad ones."}, {"no": 130, "ja": "JFC UKは急いでいないので、Kitamiのコンテナが到着するまで待っても問題ありません。", "en": "JFC UK is not in a hurry, so it's no problem to wait for the Kitami container to arrive."}, {"no": 131, "ja": "5Sが使えそうだと聞いて安心しました。", "en": "I'm relieved to hear that you may be able to use the 5S."}, {"no": 133, "ja": "各サイズ約1kgずつサンプルとして持ち帰りたいです。", "en": "I'd like to take about one kilogram of each size as samples."}, {"no": 134, "ja": "今月末にJFC Germanyへこの商品を提案する予定です。", "en": "I'm going to present this product to JFC Germany at the end of this month."}, {"no": 135, "ja": "今シーズンのホタテの状況、特に5Sについてお客様に説明します。", "en": "I will explain the scallop situation this season, especially the 5S, to our customer."}, {"no": 136, "ja": "もっと販売してもらえるようにお願いしたいです。", "en": "I will ask them if they can sell more of the product."}, {"no": 137, "ja": "サンプル分については、後でクレジットノートを発行します。", "en": "I will issue a credit note for the samples later."}, {"no": 138, "ja": "1袋にどのように詰められているのか分かりません。", "en": "I'm not sure how they are packed in each bag."}, {"no": 139, "ja": "Takadaはグレーズが薄いと聞いています。", "en": "I heard that the glaze on the Takada products is quite thin."}, {"no": 140, "ja": "KitamiのグレーズがTakadaより厚ければ、状態はかなり良いと思います。", "en": "If the glaze on the Kitami products is thicker than Takada's, I think the condition should be much better."}, {"no": 141, "ja": "ただ、実際にコンテナが到着してから確認する必要があります。", "en": "But we need to check the products after the container arrives."}, {"no": 142, "ja": "もしKitamiでも同じ問題があれば、別の対応を考える必要があります。", "en": "If the Kitami products have the same issue, we'll have to think of another solution."}, {"no": 143, "ja": "良いものと乾燥しているものを混ぜてサンプルにしてください。", "en": "Please include a mix of good and dried products in the samples."}, {"no": 144, "ja": "多分JFC UKは問題ないと言ってくれると思います。", "en": "I think JFC UK will probably say it's okay."}, {"no": 145, "ja": "先ほど本社に確認したところ、今回と同じようなことが以前にもあったようです。", "en": "I checked with our head office earlier, and it seems that something similar happened before."}, {"no": 146, "ja": "Clintから、明日確認すると言われています。", "en": "Clint told me that he would check it tomorrow."}, {"no": 147, "ja": "Clintから、明日確認すると聞いています。", "en": "I heard from Clint that he would check it tomorrow."}, {"no": 148, "ja": "今、子供がひどい咳をしているのですが、診てもらえますか？", "en": "Hi, my child has a really bad cough. Could a doctor see us?"}, {"no": 149, "ja": "隣の歯は神経を抜いているので、弱いのではないかと心配です。その歯で普通に噛んでも大丈夫ですか？", "en": "The nerve in the tooth next to it has been removed. I'm worried that tooth might be weak. Is it okay to chew normally with it?"}, {"no": 150, "ja": "魚はそのままで大丈夫です。", "en": "No, thank you. Just leave it as it is."}, {"no": 151, "ja": "パスタを大盛りにできますか？", "en": "Can I get a larger portion of pasta?"}, {"no": 152, "ja": "添付ファイルの「Detail」シートで価格推移をご確認ください。", "en": "Please check the price trends on the Detail sheet in the attached file."}, {"no": 153, "ja": "グレーズが厚い。", "en": "The glaze is thick."}, {"no": 154, "ja": "先生の指示に従わないとダメだよ。", "en": "You have to follow your teacher's instructions."}, {"no": 155, "ja": "魚のうろこを取ってもらえますか？", "en": "Could you remove the scales?"}, {"no": 156, "ja": "何もしなくて大丈夫です。", "en": "You don't have to do anything."}, {"no": 157, "ja": "過去5年間の価格推移を分析して、将来のコストを予測しました。", "en": "We analyzed the price trends over the last five years to predict future costs."}, {"no": 158, "ja": "大人にはもっと難しいかもしれない。", "en": "Maybe it's harder for adults."}, {"no": 159, "ja": "息子が1人います。4歳です。", "en": "I have a son. He's four."}, {"no": 160, "ja": "息子にもクライミングをやってみてほしいです。", "en": "I'd like him to try climbing."}, {"no": 161, "ja": "でも、まだ背がとても低いです。", "en": "But he's still very short."}, {"no": 162, "ja": "でも、まだとても小柄です。", "en": "But he's still very small."}, {"no": 163, "ja": "オランダ人は本当に背が高いですね。", "en": "Dutch people are really tall."}, {"no": 164, "ja": "それは日本では平均的なくらいです。", "en": "That's pretty average in Japan."}, {"no": 165, "ja": "ここでは、ほかの日本人を見かけたことがありません。", "en": "I haven't seen any other Japanese people here."}, {"no": 166, "ja": "ここがとても好きです。みんな楽しそうにしています。", "en": "I really like this place. Everyone seems to be having a good time."}, {"no": 167, "ja": "日本のジムとは雰囲気が違います。", "en": "The atmosphere is different from the gyms in Japan."}, {"no": 168, "ja": "みんな、おしゃべりやお酒を一緒に楽しんでいるように見えます。", "en": "People seem to enjoy chatting and having a drink together."}, {"no": 169, "ja": "ここではボードゲームもしていますね。", "en": "People play board games here, too."}, {"no": 170, "ja": "これはオランダの文化の一部ですか？", "en": "Is this part of Dutch culture?"}, {"no": 171, "ja": "ここは、とても温かく、居心地のよい雰囲気ですね。", "en": "This place has a really warm, welcoming atmosphere."}, {"no": 172, "ja": "話してくれてありがとう。", "en": "Thanks for chatting with me."}, {"no": 173, "ja": "ここの雰囲気がとても好きです。", "en": "I really like the atmosphere here."}, {"no": 174, "ja": "自分が日本で行ったジムとは違う感じがします。", "en": "It feels different from the gyms I've been to in Japan."}, {"no": 175, "ja": "北見コンテナの状態はどうでしたか？", "en": "How was the condition of the Kitami container?"}, {"no": 176, "ja": "この箱はコンテナのどの位置にありましたか？", "en": "Where was this box located in the container?"}, {"no": 177, "ja": "こういう問題は今回が初めてですか？", "en": "Is this the first time you have had this kind of problem?"}, {"no": 178, "ja": "過去にも同じようなことがありましたか？", "en": "Have you experienced anything similar before?"}, {"no": 179, "ja": "グレーズの割合はどのくらいですか？", "en": "What is the glazing percentage?"}, {"no": 180, "ja": "高田のグレーズ率を確認しました。", "en": "I checked the glazing percentage for the Takada scallops."}, {"no": 181, "ja": "来週慎吾が来たとき、高田と北見の現物を見せてもらえますか？", "en": "Could you show Shingo the Takada and Kitami products when he visits next week?"}, {"no": 182, "ja": "急なお願いをしてすみません。", "en": "Sorry for the last-minute request."}, {"no": 183, "ja": "300グラムのリパックを依頼する場合、誰に連絡すればよいですか？", "en": "Who should I contact if I want to request 300-gram repacking?"}, {"no": 184, "ja": "11月中にリパックを終える必要がありますか？", "en": "Do you need to finish repacking by the end of November?"}, {"no": 185, "ja": "新しいラベルデザインを送ります。", "en": "I will send you the new label design."}, {"no": 186, "ja": "6Sと7Sの工場番号を1に変更してください。", "en": "Please change the factory number to one for the 6S and 7S products."}, {"no": 187, "ja": "以前はどのように対応していましたか？", "en": "How did you handle this in the past?"}, {"no": 188, "ja": "通関手続きもShare Logisticsに依頼しています。", "en": "I also ask Share Logistics to handle customs clearance."}, {"no": 189, "ja": "JFC Holland経由で販売できるか確認します。", "en": "I will check whether we can sell through JFC Holland."}, {"no": 190, "ja": "なぜこうなったのか原因を調べる必要があります。", "en": "We need to investigate what caused this problem."}, {"no": 191, "ja": "来週、慎吾とマイケルと一緒に確認したいです。", "en": "I would like to check it together with Shingo and Michael next week."}, {"no": 192, "ja": "問題を確認して改善する必要があります。", "en": "We need to identify the problem and make improvements."}, {"no": 193, "ja": "この商品をAmazing Orientalに提案してもいいですか？", "en": "Can I offer this product to Amazing Oriental?"}, {"no": 194, "ja": "先週、JFCにホタテのプレゼンをしました。", "en": "I gave a presentation on scallops to JFC last week."}, {"no": 195, "ja": "これは欧州へのホタテ輸入量を示しています。", "en": "This shows scallop imports into Europe."}, {"no": 196, "ja": "これは当社の仕入価格です。", "en": "These are our purchase prices."}, {"no": 197, "ja": "当初は7～9コンテナを予定していました。", "en": "We originally planned for seven to nine containers."}, {"no": 198, "ja": "現在は5コンテナしか確保できない見込みです。", "en": "We now expect to secure only five containers."}, {"no": 199, "ja": "追加のコンテナを購入できる可能性があります。", "en": "There may be an opportunity to purchase additional containers."}, {"no": 200, "ja": "ほかに購入できるホタテがあれば教えてください。", "en": "Please let me know if you find any other scallops available for purchase."}, {"no": 201, "ja": "新しいラベルを送ってください。", "en": "Please send me the new labels."}, {"no": 202, "ja": "乾燥はすでに日本でのどこかの段階で始まっていたかもしれません。", "en": "The drying might have already started at a stage in Japan."}, {"no": 203, "ja": "これは何グラムですか？", "en": "How many grams is this?"}];
+let items = LS.get("eq_items", null) || STARTER.map(x=>Object.assign({}, x));
+const DEF = {engine:"browser", voice:"", key:"", ovoice:"alloy", think:6, after:3, rep:1, gap:0, rate:1.0, loop:"0"};
+let S = Object.assign({}, DEF, LS.get("eq_settings", {}));
+function saveItems(){ items.sort((a,b)=>a.no-b.no); LS.set("eq_items", items); }
+function saveSettings(){ LS.set("eq_settings", S); }
+
+const $ = s => document.querySelector(s);
+function toast(t){ const m=$("#msg"); m.textContent=t; m.style.display="block"; clearTimeout(toast.t); toast.t=setTimeout(()=>m.style.display="none",2200); }
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+
+/* ---------- タブ ---------- */
+document.querySelectorAll("header button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("header button").forEach(x=>x.classList.toggle("on", x===b));
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("on", s.id===b.dataset.tab));
+  if(b.dataset.tab==="list") renderList();
+});
+
+/* ---------- 声（ブラウザ） ---------- */
+let voices = [];
+function scoreVoice(v){
+  let s = 0; const n = v.name;
+  if(/natural|neural/i.test(n)) s+=6;
+  if(/google/i.test(n)) s+=3;
+  if(/enhanced|premium|online/i.test(n)) s+=3;
+  if(/^en[-_]US/i.test(v.lang)) s+=2; else if(/^en[-_]GB/i.test(v.lang)) s+=1;
+  return s;
+}
+function loadVoices(){
+  voices = speechSynthesis.getVoices();
+  const en = voices.filter(v=>/^en/i.test(v.lang)).sort((a,b)=>scoreVoice(b)-scoreVoice(a));
+  const sel = $("#sVoice"); sel.innerHTML = "";
+  en.forEach(v=>{ const o=document.createElement("option"); o.value=v.name; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o); });
+  if(!S.voice && en[0]) S.voice = en[0].name;
+  sel.value = S.voice;
+}
+if("speechSynthesis" in window){ loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+function pickVoice(lang){
+  if(lang.startsWith("en")) return voices.find(v=>v.name===S.voice) || voices.filter(v=>/^en/i.test(v.lang)).sort((a,b)=>scoreVoice(b)-scoreVoice(a))[0];
+  return voices.filter(v=>/^ja/i.test(v.lang)).sort((a,b)=>scoreVoice(b)-scoreVoice(a))[0];
+}
+
+let speakCancel = null;
+function speakBrowser(text, lang, rate){
+  return new Promise(res=>{
+    const t0 = performance.now();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang; const v = pickVoice(lang); if(v) u.voice = v; u.rate = rate;
+    let done = false;
+    const fin = st => { if(done) return; done = true; clearTimeout(safe); speakCancel = null; res({st, ms: performance.now()-t0}); };
+    const safe = setTimeout(()=>fin("ok"), 5000 + text.length*160/rate);
+    u.onend = ()=>fin("ok"); u.onerror = ()=>fin("ok");
+    speakCancel = ()=>{ try{ speechSynthesis.cancel(); }catch(e){} fin("cancel"); };
+    try{ speechSynthesis.cancel(); }catch(e){}
+    speechSynthesis.speak(u);
+  });
+}
+
+/* ---------- 声（OpenAI） ---------- */
+const ttsCache = new Map();
+const audio = new Audio();
+function ttsKey(text){ return S.ovoice + "|" + text; }
+function getTTS(text){
+  const k = ttsKey(text);
+  if(ttsCache.has(k)) return ttsCache.get(k);
+  const p = fetch("https://api.openai.com/v1/audio/speech", {
+    method:"POST",
+    headers:{ "Authorization":"Bearer " + S.key, "Content-Type":"application/json" },
+    body: JSON.stringify({ model:"gpt-4o-mini-tts", voice:S.ovoice, input:text, response_format:"mp3",
+      instructions:"Speak in clear, natural, fluent American English at a normal conversational pace." })
+  }).then(async r=>{
+    if(!r.ok){ const t = await r.text(); throw new Error("OpenAI " + r.status + " " + t.slice(0,120)); }
+    return URL.createObjectURL(await r.blob());
+  });
+  p.catch(()=>ttsCache.delete(k));
+  ttsCache.set(k, p);
+  return p;
+}
+function speakOpenAI(text, rate){
+  return new Promise(async (res, rej)=>{
+    let done = false;
+    const fin = st => { if(done) return; done = true; speakCancel = null; audio.onended = null; res({st, ms: (audio.duration||0)*1000/rate}); };
+    speakCancel = ()=>{ try{ audio.pause(); }catch(e){} fin("cancel"); };
+    let url;
+    try{ url = await getTTS(text); }catch(e){ speakCancel = null; if(!done){ done = true; rej(e); } return; }
+    if(done) return;
+    audio.src = url; audio.playbackRate = rate; audio.preservesPitch = true;
+    audio.onended = ()=>fin("ok");
+    audio.onerror = ()=>{ if(!done){ done = true; speakCancel = null; rej(new Error("音声を再生できません")); } };
+    try{ await audio.play(); }catch(e){ if(!done){ done = true; speakCancel = null; rej(e); } }
+  });
+}
+async function speakEn(text){
+  if(S.engine==="openai" && S.key){
+    try{ return await speakOpenAI(text, S.rate); }
+    catch(e){ toast("OpenAIの声が使えません。内蔵の声で読みます"); console.warn(e); }
+  }
+  return speakBrowser(text, "en-US", S.rate);
+}
+function speakJa(text){ return speakBrowser(text, "ja-JP", 1.05); }
+function cancelSpeech(){ if(speakCancel) speakCancel(); try{ speechSynthesis.cancel(); }catch(e){} }
+
+/* ---------- 音声認識 ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, wantListen = false, curWin = null;
+if(SR){
+  rec = new SR(); rec.lang = "ja-JP"; rec.continuous = true; rec.interimResults = true;
+  rec.onresult = e=>{
+    for(let i=e.resultIndex; i<e.results.length; i++){
+      const r = e.results[i], t = r[0].transcript;
+      $("#heard").textContent = "🎤 " + t;
+      if(r.isFinal) onHeard(t); else if(curWin && curWin.kind==="think") curWin.extend();
+    }
+  };
+  rec.onend = ()=>{ if(wantListen) setTimeout(()=>{ if(wantListen){ try{ rec.start(); }catch(e){} } }, 120); };
+  rec.onerror = e=>{ if(e.error==="not-allowed"){ wantListen=false; $("#micNote").textContent="マイクが許可されていません。ブラウザの設定でマイクを許可してください。ボタンでは操作できます。"; } };
+} else {
+  $("#micNote").textContent = "このブラウザは音声認識に対応していません（AndroidのChromeがおすすめ）。ボタンでは操作できます。";
+}
+function startListen(){ if(!rec) return; wantListen = true; try{ rec.start(); }catch(e){} }
+function stopListen(){ if(!rec) return; wantListen = false; try{ rec.abort(); }catch(e){} }
+
+function listenWindow(ms, kind){
+  return new Promise(res=>{
+    let timer = null, deadline = performance.now() + ms;
+    const arm = ()=>{ clearTimeout(timer); if(isFinite(deadline)) timer = setTimeout(()=>w.finish({type:"timeout"}), Math.max(0, deadline - performance.now())); };
+    const w = {
+      kind, done:false,
+      finish(r){ if(w.done) return; w.done = true; clearTimeout(timer); if(curWin===w) curWin = null; stopListen(); res(r); },
+      extend(){ deadline = Math.max(deadline, performance.now() + 2500); arm(); }
+    };
+    curWin = w; arm(); startListen();
+  });
+}
+function onHeard(text){
+  if(!curWin) return;
+  const cmd = parseCommand(text);
+  if(cmd) curWin.finish({type:"cmd", cmd});
+  else if(curWin.kind==="think") curWin.finish({type:"speech", text});
+}
+
+/* ---------- コマンドの聞き分け ---------- */
+const KN = {"一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,"八":8,"九":9};
+function kanjiNum(s){
+  if(s==="十") return 10;
+  const m = s.match(/^([一二三四五六七八九])?十([一二三四五六七八九])?$/);
+  if(m) return (m[1]?KN[m[1]]:1)*10 + (m[2]?KN[m[2]]:0);
+  return KN[s] || 0;
+}
+const KANA = {"いっかい":1,"にかい":2,"さんかい":3,"よんかい":4,"ごかい":5,"ろっかい":6,"ななかい":7,"はちかい":8,"はっかい":8,"きゅうかい":9,"じゅっかい":10,"じっかい":10};
+function parseCount(t){
+  let m = t.match(/(\d+)回/); if(m) return +m[1];
+  m = t.match(/([一二三四五六七八九十]+)回/); if(m) return kanjiNum(m[1]);
+  for(const k in KANA) if(t.includes(k)) return KANA[k];
+  return 0;
+}
+function parseCommand(raw){
+  const t = raw.replace(/[\s、。！？!?.,]/g, "").replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).toLowerCase();
+  if(!t) return null;
+  if(/ストップ|止めて|とめて|停止|待って|まって/.test(t)) return {type:"pause"};
+  if(t.length > 16) return null;  // 長い発話は英語の答えとみなす
+  if(/再開|続けて|つづけて|スタート|始めて|はじめて/.test(t)) return {type:"resume"};
+  if(/終わり|おわり|終了|おしまい/.test(t)) return {type:"stop"};
+  if(/もう一回|もう1回|もういっかい|もう一度|もういちど|リピート/.test(t)) return {type:"repeat", n:1};
+  const n = parseCount(t); if(n>0 && n<=30) return {type:"repeat", n};
+  if(/普通|ふつう|元の速さ|もとの速さ|標準/.test(t)) return {type:"normal"};
+  if(/早く|速く|はやく|早め|速め|スピードアップ|アップ/.test(t)) return {type:"faster"};
+  if(/遅く|おそく|遅め|ゆっくり|スロー|ダウン/.test(t)) return {type:"slower"};
+  if(/次|つぎ|ネクスト|スキップ|パス/.test(t)) return {type:"next"};
+  if(/前|まえ|戻って|もどって|戻る|バック/.test(t)) return {type:"prev"};
+  if(/答え|こたえ|正解|せいかい|わからない|分からない|わかんない|ギブアップ/.test(t)) return {type:"answer"};
+  if(/問題|もんだい|日本語/.test(t)) return {type:"question"};
+  return null;
+}
+
+/* ---------- 練習の進行 ---------- */
+let running = false, paused = false, queued = null, order = [], pos = 0, resumeAction = "question", wakeLock = null;
+function cur(){ return order[pos]; }
+function setStatus(t){ $("#status").textContent = t; }
+function showRate(){ $("#rateP").textContent = S.rate.toFixed(1) + "x"; }
+function render(showAns){
+  const it = cur(); if(!it) return;
+  $("#no").textContent = it.no + "番";
+  $("#ja").textContent = it.ja;
+  $("#en").textContent = it.en;
+  $("#en").classList.toggle("hide", !showAns);
+  $("#posP").textContent = (pos+1) + " / " + order.length;
+  showRate();
+}
+function changeRate(d){
+  S.rate = d===0 ? 1.0 : Math.min(1.8, Math.max(0.5, Math.round((S.rate + d)*10)/10));
+  saveSettings(); $("#sRate").value = S.rate; showRate(); toast("速さ " + S.rate.toFixed(1) + "x");
+}
+function applyCmd(c, phase){
+  switch(c.type){
+    case "next": return "next";
+    case "prev": return "prev";
+    case "repeat": return {rep:c.n};
+    case "answer": return {rep:S.rep};
+    case "question": return "question";
+    case "faster": changeRate(+0.1); return {rep:1};
+    case "slower": changeRate(-0.1); return {rep:1};
+    case "normal": changeRate(0); return {rep:1};
+    case "pause": paused = true; resumeAction = phase==="question" ? "question" : {rep:1}; return "pause";
+    case "resume": return phase==="question" ? "question" : {rep:1};
+    case "stop": running = false; return "stop";
+  }
+  return "next";
+}
+async function playAnswer(n){
+  const it = cur(); render(true);
+  for(let i=0; i<n; i++){
+    setStatus(n>1 ? `🔊 ${i+1} / ${n} 回目` : "🔊 正解");
+    const r = await speakEn(it.en);
+    if(queued){ const c = queued; queued = null; return {type:"cmd", cmd:c}; }
+    if(!running) return {type:"timeout"};
+    if(i < n-1){
+      const gap = S.gap > 0 ? S.gap*1000 : Math.max(1200, r.ms*1.1 + 500);
+      setStatus(`🗣 後について言う（${i+1} / ${n}）`);
+      const w = await listenWindow(gap, "gap");
+      if(w.type==="cmd") return w;
+    }
+  }
+  setStatus("🎤 次へ進みます…（「もう一回」「10回」なども可）");
+  return listenWindow(S.after*1000, "after");
+}
+async function loop(){
+  let action = "question";
+  while(running){
+    if(action==="stop") break;
+    if(action==="pause"){
+      $("#pauseBtn").textContent = "▶ 再開";
+      setStatus("⏸ 一時停止中 —「再開」で続きから");
+      const w = await listenWindow(Infinity, "paused");
+      $("#pauseBtn").textContent = "⏸ ストップ";
+      paused = false;
+      if(!running || w.cmd.type==="stop") break;
+      action = (w.cmd.type==="next"||w.cmd.type==="prev") ? w.cmd.type : resumeAction;
+      continue;
+    }
+    if(action==="next"){
+      if(pos >= order.length-1){
+        if(S.loop==="1"){ pos = 0; }
+        else { setStatus("おわり"); await speakJa("おわりです。おつかれさまでした。"); break; }
+      } else pos++;
+      action = "question"; continue;
+    }
+    if(action==="prev"){ pos = Math.max(0, pos-1); action = "question"; continue; }
+    if(action==="question"){
+      const it = cur(); render(false);
+      if(S.engine==="openai" && S.key) getTTS(it.en).catch(()=>{});
+      setStatus("🔊 問題");
+      await speakJa(it.no + "番。" + it.ja);
+      if(!running) break;
+      let w;
+      if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
+      else { setStatus("🎤 英語で言ってください"); w = await listenWindow(S.think*1000, "think"); }
+      if(w.type==="cmd"){ action = applyCmd(w.cmd, "question"); continue; }
+      if(w.type==="speech") await sleep(300);
+      action = {rep:S.rep}; continue;
+    }
+    if(action.rep){
+      const w = await playAnswer(action.rep);
+      if(!running) break;
+      action = w.type==="cmd" ? applyCmd(w.cmd, "answer") : "next";
+      continue;
+    }
+    action = "question";
+  }
+  finishSession();
+}
+function finishSession(){
+  running = false; stopListen(); cancelSpeech();
+  $("#startBtn").textContent = "▶ スタート"; $("#pauseBtn").textContent = "⏸ ストップ";
+  setStatus("終了しました"); $("#heard").textContent = "";
+  if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
+}
+async function keepAwake(){ try{ if("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
+document.addEventListener("visibilitychange", ()=>{ if(running && document.visibilityState==="visible") keepAwake(); });
+
+$("#startBtn").onclick = ()=>{
+  if(running){ sendCmd({type:"stop"}); return; }
+  const a = +$("#from").value || 1, b = +$("#to").value || 9999;
+  const lo = Math.min(a,b), hi = Math.max(a,b);
+  order = items.filter(x=>x.no>=lo && x.no<=hi);
+  if(!order.length){ toast("その範囲に例文がありません"); return; }
+  if($("#order").value==="rnd") for(let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
+  LS.set("eq_range", {a, b, o:$("#order").value});
+  // スマホで音を出す許可をこのタップで取っておく
+  try{ audio.src = silentWav(); audio.play().catch(()=>{}); }catch(e){}
+  running = true; paused = false; queued = null; pos = 0;
+  $("#startBtn").textContent = "■ 練習を終わる";
+  keepAwake();
+  loop();
+};
+function silentWav(){
+  const n = 800, b = new ArrayBuffer(44 + n), v = new DataView(b), w = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+  w(0,"RIFF"); v.setUint32(4,36+n,true); w(8,"WAVE"); w(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,8000,true); v.setUint32(28,8000,true); v.setUint16(32,1,true); v.setUint16(34,8,true); w(36,"data"); v.setUint32(40,n,true);
+  for(let i=0;i<n;i++) v.setUint8(44+i,128);
+  return URL.createObjectURL(new Blob([b], {type:"audio/wav"}));
+}
+function sendCmd(c){
+  if(!running){ if(c.type==="faster") changeRate(+0.1); else if(c.type==="slower") changeRate(-0.1); else if(c.type==="normal") changeRate(0); return; }
+  if(c.type==="stop"){ running = false; if(curWin) curWin.finish({type:"cmd", cmd:c}); cancelSpeech(); return; }
+  if(curWin) curWin.finish({type:"cmd", cmd:c});
+  else { queued = c; cancelSpeech(); }
+}
+document.querySelectorAll("#ctrl button, [data-cmd=stop]").forEach(b=>b.onclick=()=>{
+  const k = b.dataset.cmd;
+  const map = {prev:{type:"prev"}, next:{type:"next"}, again:{type:"repeat",n:1}, ten:{type:"repeat",n:10},
+               answer:{type:"answer"}, slower:{type:"slower"}, normal:{type:"normal"}, faster:{type:"faster"}, stop:{type:"stop"}};
+  if(k==="pausetoggle") sendCmd(curWin && curWin.kind==="paused" ? {type:"resume"} : {type:"pause"});
+  else sendCmd(map[k]);
+});
+
+/* ---------- 例文の管理 ---------- */
+let editingNo = null;
+function nextNo(){ return items.length ? Math.max(...items.map(x=>x.no)) + 1 : 1; }
+function resetForm(){
+  editingNo = null; $("#fNo").value = nextNo(); $("#fJa").value = ""; $("#fEn").value = "";
+  $("#formTitle").textContent = "例文を追加"; $("#saveItem").textContent = "追加する"; $("#cancelEdit").style.display = "none";
+}
+function renderList(){
+  const q = $("#search").value.trim().toLowerCase();
+  const list = items.filter(x=>!q || (x.ja+" "+x.en).toLowerCase().includes(q) || String(x.no)===q);
+  $("#count").textContent = `（${items.length}件）`;
+  $("#items").innerHTML = list.map(x=>`<div class="item"><div class="n">${x.no}</div>
+    <div class="t"><div>${esc(x.ja)}</div><div class="e">${esc(x.en)}</div></div>
+    <div class="ops"><button data-ed="${x.no}">編集</button><button data-pl="${x.no}">🔊</button><button data-del="${x.no}">削除</button></div></div>`).join("")
+    || '<p class="small">まだありません</p>';
+  if(editingNo===null && !$("#fJa").value) $("#fNo").value = nextNo();
+}
+$("#items").onclick = e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  if(b.dataset.ed){ const x = items.find(i=>i.no==b.dataset.ed); editingNo = x.no; $("#fNo").value=x.no; $("#fJa").value=x.ja; $("#fEn").value=x.en;
+    $("#formTitle").textContent = x.no + "番を編集"; $("#saveItem").textContent = "保存する"; $("#cancelEdit").style.display = ""; window.scrollTo({top:0,behavior:"smooth"}); }
+  if(b.dataset.pl){ const x = items.find(i=>i.no==b.dataset.pl); speakEn(x.en); }
+  if(b.dataset.del){
+    if(b.dataset.sure){ items = items.filter(i=>i.no!=b.dataset.del); saveItems(); renderList(); toast("削除しました"); }
+    else { b.dataset.sure = "1"; b.textContent = "本当に?"; setTimeout(()=>{ delete b.dataset.sure; b.textContent = "削除"; }, 3000); }
+  }
+};
+$("#search").oninput = renderList;
+$("#cancelEdit").onclick = resetForm;
+$("#testEn").onclick = ()=>{ const t = $("#fEn").value.trim(); if(t) speakEn(t); };
+$("#saveItem").onclick = ()=>{
+  const no = +$("#fNo").value || nextNo(), ja = $("#fJa").value.trim(), en = $("#fEn").value.trim();
+  if(!ja || !en){ toast("日本語と英語の両方を入れてください"); return; }
+  const clash = items.find(i=>i.no===no && i.no!==editingNo);
+  if(clash){ toast(no + "番はもう使われています"); return; }
+  if(editingNo!==null) items = items.filter(i=>i.no!==editingNo);
+  items.push({no, ja, en}); saveItems(); toast(no + "番を保存しました"); resetForm(); renderList();
+};
+
+const SEP = /\t| — | – | → |→| \/ |／| \| |\|/;
+const isEnglish = s => (s.match(/[A-Za-z]/g)||[]).length > s.replace(/\s/g,"").length*0.5;
+function parseBulk(text){
+  const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const out = [];
+  for(let i=0; i<lines.length; i++){
+    let s = lines[i], no = null;
+    const m = s.match(/^(?:No\.?\s*|ナンバー)?(\d+)\s*(?:[.)．、:：番]\s*|\s+)/i);
+    if(m){ no = +m[1]; s = s.slice(m[0].length).trim(); }
+    let ja, en;
+    if(SEP.test(s)){ const p = s.split(SEP); ja = p[0].trim(); en = p.slice(1).join(" ").trim(); }
+    else if(s.includes(",") && !isEnglish(s.split(",")[0])){ const k = s.indexOf(","); ja = s.slice(0,k).trim(); en = s.slice(k+1).trim(); }
+    else if(!isEnglish(s) && lines[i+1] && isEnglish(lines[i+1].replace(/^\d+\s*[.)．、:：]\s*/, ""))){ ja = s; en = lines[++i].replace(/^\d+\s*[.)．、:：]\s*/, "").trim(); }
+    else continue;
+    ja = ja.replace(/^["「]|["」]$/g,""); en = en.replace(/^["“]|["”]$/g,"");
+    if(isEnglish(ja) && !isEnglish(en)) [ja, en] = [en, ja];
+    if(ja && en) out.push({no, ja, en});
+  }
+  return out;
+}
+$("#bulkBtn").onclick = ()=>{
+  const rows = parseBulk($("#bulk").value);
+  if(!rows.length){ toast("読み取れる行がありませんでした"); return; }
+  const replace = $("#bulkReplace").checked; let add = 0, skip = 0;
+  for(const r of rows){
+    let no = r.no ?? nextNo();
+    const ex = items.find(i=>i.no===no);
+    if(ex){ if(replace){ ex.ja = r.ja; ex.en = r.en; add++; } else if(r.no!==null){ skip++; continue; } else { no = nextNo(); items.push({no, ja:r.ja, en:r.en}); add++; } }
+    else { items.push({no, ja:r.ja, en:r.en}); add++; }
+  }
+  saveItems(); renderList(); $("#bulk").value = "";
+  toast(`${add}件 取り込みました` + (skip ? `（${skip}件は番号が重複のためスキップ）` : ""));
+};
+function exportText(){ return items.map(x=>`${x.no}\t${x.ja}\t${x.en}`).join("\n"); }
+$("#expCopy").onclick = async ()=>{
+  const t = exportText(), a = $("#expArea");
+  try{ await navigator.clipboard.writeText(t); toast("コピーしました"); }
+  catch(e){ a.style.display = "block"; a.value = t; a.select(); toast("下の文字を長押ししてコピーしてください"); }
+};
+$("#expFile").onclick = ()=>{
+  const blob = new Blob([exportText()], {type:"text/plain"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "例文バックアップ_" + new Date().toISOString().slice(0,10) + ".txt"; a.click();
+};
+
+$("#restoreStarter").onclick = ()=>{
+  let n = 0; for(const x of STARTER) if(!items.some(i=>i.no===x.no)){ items.push(Object.assign({}, x)); n++; }
+  saveItems(); renderList(); toast(n ? n + "件 戻しました" : "全部そろっています");
+};
+/* ---------- 設定 ---------- */
+function loadSettingsUI(){
+  $("#sEngine").value = S.engine; $("#sKey").value = S.key; $("#sOVoice").value = S.ovoice;
+  $("#sThink").value = S.think; $("#sAfter").value = S.after; $("#sRep").value = S.rep; $("#sGap").value = S.gap;
+  $("#sRate").value = S.rate; $("#sLoop").value = S.loop;
+  $("#browserBox").style.display = S.engine==="browser" ? "" : "none";
+  $("#openaiBox").style.display = S.engine==="openai" ? "" : "none";
+}
+document.querySelectorAll("#set input, #set select").forEach(el=>el.onchange = ()=>{
+  S.engine = $("#sEngine").value; S.voice = $("#sVoice").value; S.key = $("#sKey").value.trim(); S.ovoice = $("#sOVoice").value;
+  S.think = Math.max(1, +$("#sThink").value || DEF.think); S.after = Math.max(0, +$("#sAfter").value);
+  S.rep = Math.min(30, Math.max(1, +$("#sRep").value || 1)); S.gap = Math.max(0, +$("#sGap").value || 0);
+  S.rate = Math.min(1.8, Math.max(0.5, +$("#sRate").value || 1)); S.loop = $("#sLoop").value;
+  saveSettings(); loadSettingsUI(); showRate();
+});
+$("#sTest").onclick = ()=>speakEn("I'd like to follow up on the shipment we discussed last week.");
+
+/* ---------- 起動 ---------- */
+const rg = LS.get("eq_range", null);
+if(rg){ $("#from").value = rg.a; $("#to").value = rg.b; $("#order").value = rg.o; }
+loadSettingsUI(); showRate(); resetForm();
+</script>
+</body>
+</html>
