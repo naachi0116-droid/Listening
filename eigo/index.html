@@ -95,6 +95,7 @@
       <tr><td>「1番から20番」</td><td>出題する範囲を決める（スタート直後に聞かれます。いつ言っても可）</td></tr>
       <tr><td>「30番」</td><td>その番号の問題へ移動</td></tr>
       <tr><td>「答え」「わからない」</td><td>すぐ答えを読む</td></tr>
+      <tr><td>「なんでisなの？areじゃないの？」</td><td>AIの先生が日本語で短く説明（「どうして」「違いは」「意味」「似た問題」「他の言い方」なども可）</td></tr>
       <tr><td>「もう一回」</td><td>答えをもう一度読む</td></tr>
       <tr><td>「10回」「5回読んで」</td><td>答えをその回数くり返す（シャドーイング用）</td></tr>
       <tr><td>「早く」「遅く」「ゆっくり」</td><td>英語の速さを0.1ずつ変えて読み直す</td></tr>
@@ -293,14 +294,14 @@ const idb = {
 };
 const audio = new Audio();
 function ttsKey(text){ return S.ovoice + "|" + text; }
-function getTTS(text){
+function getTTS(text, instr){
   const k = ttsKey(text);
   if(ttsCache.has(k)) return ttsCache.get(k);
   const p = idb.get(k).then(hit=>{ if(hit) return URL.createObjectURL(hit); return fetch("https://api.openai.com/v1/audio/speech", {
     method:"POST",
     headers:{ "Authorization":"Bearer " + S.key, "Content-Type":"application/json" },
     body: JSON.stringify({ model:"gpt-4o-mini-tts", voice:S.ovoice, input:text, response_format:"mp3",
-      instructions:"You are a native English speaker in a business setting. Read the sentence naturally and fluently, with natural intonation, rhythm, linking and stress, at a normal conversational pace. Do not sound robotic or overly slow." })
+      instructions: instr || "You are a native English speaker in a business setting. Read the sentence naturally and fluently, with natural intonation, rhythm, linking and stress, at a normal conversational pace. Do not sound robotic or overly slow." })
   }).then(async r=>{
     if(!r.ok){ const t = await r.text(); throw new Error("OpenAI " + r.status + " " + t.slice(0,120)); }
     const b = await r.blob(); idb.put(k, b); return URL.createObjectURL(b);
@@ -309,13 +310,13 @@ function getTTS(text){
   ttsCache.set(k, p);
   return p;
 }
-function speakOpenAI(text, rate){
+function speakOpenAI(text, rate, instr){
   return new Promise(async (res, rej)=>{
     let done = false;
     const fin = st => { if(done) return; done = true; speakCancel = null; audio.onended = null; res({st, ms: (audio.duration||0)*1000/rate}); };
     speakCancel = ()=>{ try{ audio.pause(); }catch(e){} fin("cancel"); };
     let url;
-    try{ url = await getTTS(text); }catch(e){ speakCancel = null; if(!done){ done = true; rej(e); } return; }
+    try{ url = await getTTS(text, instr); }catch(e){ speakCancel = null; if(!done){ done = true; rej(e); } return; }
     if(done) return;
     audio.src = url; audio.playbackRate = rate; audio.preservesPitch = true;
     audio.onended = ()=>fin("ok");
@@ -331,6 +332,14 @@ async function speakEn(text){
   return speakBrowser(text, "en-US", S.rate);
 }
 let speakingJa = "";
+const TEACHER = "You are a friendly Japanese English teacher talking to a learner who is driving. Speak natural Japanese clearly at a normal pace; pronounce any English words and example sentences with natural native English pronunciation.";
+async function speakTeacher(text){
+  speakingJa = text;
+  try{
+    if(S.engine==="openai" && S.key){ try{ return await speakOpenAI(text, 1.0, TEACHER); }catch(e){ console.warn(e); } }
+    return await speakBrowser(text, "ja-JP", 1.05);
+  } finally { setTimeout(()=>{ speakingJa = ""; }, 800); }
+}
 async function speakJa(text){ speakingJa = text; try{ return await speakBrowser(text, "ja-JP", 1.05); } finally { setTimeout(()=>{ speakingJa = ""; }, 600); } }
 function cancelSpeech(){ if(speakCancel) speakCancel(); try{ speechSynthesis.cancel(); }catch(e){} }
 
@@ -369,6 +378,7 @@ function listenWindow(ms, kind){
 function onHeard(text){
   if(!curWin) return;
   if(curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
+  if(S.key && isQuestion(text) && curWin.kind!=="range"){ curWin.finish({type:"cmd", cmd:{type:"ask", q:text}}); return; }
   const cmd = parseCommand(text);
   if(cmd) curWin.finish({type:"cmd", cmd});
   else if(curWin.kind==="think") curWin.finish({type:"speech", text});
@@ -449,6 +459,7 @@ const aiMic = {
     $("#heard").textContent = "🎤 " + text;
     if(speakingJa && normJ(text).length >= 2 && normJ(speakingJa).includes(normJ(text))) return;  // 自分の問題の読み上げを拾ったもの
     if(curWin && curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
+    if(S.key && isQuestion(text) && (!curWin || curWin.kind!=="range")){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"ask", q:text}); return; }
     const cmd = parseCommand(text);
     if(cmd){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd(cmd); return; }
     if(curWin && curWin.kind==="think"){
@@ -457,6 +468,32 @@ const aiMic = {
     }
   }
 };
+
+/* ---------- 質問にAIが答える ---------- */
+const Q_CUE = /なんで|何で|どうして|なぜ|違い|ちがい|意味|って何|ってなに|ってどう|とは|どういう|教えて|使い方|似た|類似|言い換え|他の言い方|ほかの言い方|別の言い方|質問|使える|使わない|じゃない|じゃだめ|ではだめ|でもいい|でもいけ|でも大丈夫|ニュアンス/;
+function isQuestion(text){ return /[ぁ-んァ-ン一-龥]/.test(text) && Q_CUE.test(text.replace(/\s/g,"")); }
+let lastSaid = "";
+async function askAI(it, q){
+  const sys = `あなたは運転中の日本人ビジネスパーソンに英語を教える先生です。返事はそのまま音声で読み上げられます。
+- 日本語で、短く（2〜4文、全体で150字以内）。結論から言う。
+- 英単語や例文は英語のまま書く。記号・箇条書き・マークダウンは使わない。
+- 「似た問題」「他の言い方」を頼まれたら、短い英文を1〜2個、日本語の意味と一緒に言う。
+- 最後に余計な質問や雑談をしない。`;
+  const user = `いま練習中の文：
+日本語「${it.ja}」
+正解の英文「${it.en}」${lastSaid ? `\n学習者がさっき言った英文「${lastSaid}」` : ""}
+学習者の質問：${q}`;
+  for(const model of ["gpt-4.1-mini", "gpt-4o-mini"]){
+    try{
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST",
+        headers:{Authorization:"Bearer " + S.key, "Content-Type":"application/json"},
+        body: JSON.stringify({model, temperature:0.3, max_tokens:300, messages:[{role:"system", content:sys}, {role:"user", content:q ? user : ""}]})});
+      if(!r.ok) continue;
+      const j = await r.json(); return (j.choices[0].message.content||"").trim();
+    }catch(e){ console.warn(e); }
+  }
+  return "";
+}
 
 /* ---------- AIで正誤判定 ---------- */
 async function judgeAnswer(it, said){
@@ -480,6 +517,7 @@ Return JSON only: {"verdict":"correct|close|wrong","cleaned":"the learner's inte
 }
 function showVerdict(g, said){
   const lab = {correct:'<span class="ok">✅ 正解</span>', close:'<span class="cl">🔶 不正解（おしい）</span>', wrong:'<span class="ng">❌ 不正解</span>'}[g.verdict];
+  lastSaid = g.cleaned || said;
   $("#verdict").innerHTML = lab + (g.point ? "　" + esc(g.point) : "") + '<div class="small">あなた: ' + esc(g.cleaned || said) + "</div>";
 }
 
@@ -544,7 +582,7 @@ function parseCommand(raw){
 }
 
 /* ---------- 練習の進行 ---------- */
-let jumpNo = 0, running = false, paused = false, queued = null, order = [], pos = 0, resumeAction = "question", wakeLock = null;
+let askQ = "", jumpNo = 0, running = false, paused = false, queued = null, order = [], pos = 0, resumeAction = "question", wakeLock = null;
 function cur(){ return order[pos]; }
 function setStatus(t){ $("#status").textContent = t; }
 function showRate(){ $("#rateP").textContent = S.rate.toFixed(1) + "x"; }
@@ -576,6 +614,7 @@ function applyCmd(c, phase){
     case "resume": return phase==="question" ? "question" : {rep:1};
     case "stop": running = false; return "stop";
     case "jump": jumpNo = c.no; return "jump";
+    case "ask": askQ = c.q; return "ask";
     case "range": return setRange(c.a, c.b) ? "question" : (phase==="range" ? "askrange" : "question");
   }
   return "next";
@@ -642,6 +681,21 @@ async function loop(){
       action = "question"; continue;
     }
     if(action==="prev"){ pos = Math.max(0, pos-1); action = "question"; continue; }
+    if(action==="ask"){
+      setStatus("🤖 考え中…（質問：" + askQ + "）");
+      const ans = await askAI(cur(), askQ);
+      if(!running) break;
+      if(queued){ const c = queued; queued = null; action = applyCmd(c, "answer"); continue; }
+      if(ans){ $("#verdict").innerHTML = '<span class="small">💬 ' + esc(ans) + "</span>"; setStatus("🔊 説明中"); await speakTeacher(ans); }
+      else await speakJa("すみません、答えられませんでした。");
+      if(!running) break;
+      let w;
+      if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
+      else { setStatus("🎤「次」「もう一回」、続けて質問もできます"); w = await listenWindow(Infinity, "after"); }
+      if(!running) break;
+      action = w.type==="cmd" ? applyCmd(w.cmd, "answer") : "next";
+      continue;
+    }
     if(action==="askrange"){
       $("#ja").textContent = "何番から何番までにしますか？";
       setStatus(`🎤 例：「1番から20番」／そのままなら「はい」（今は${$("#from").value}〜${$("#to").value}番）`);
