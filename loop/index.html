@@ -319,7 +319,7 @@ function drawWave(c, t0, t1, opts){
   g.clearRect(0,0,W,H); if(!cur || !d) return;
   const X = t=>(t-t0)/(t1-t0)*W;
   // 今の区切り
-  const [s, e] = (loopOn && loopR) ? loopR : segRange(segIndex(au.currentTime));
+  const [s, e] = (loopOn && loopR && dragT===null) ? loopR : segRange(segIndex(viewT()));
   g.fillStyle = loopOn ? "rgba(79,209,139,.22)" : "rgba(63,182,255,.18)"; g.fillRect(X(s), 0, X(e)-X(s), H);
   // 波形
   if(peaks){
@@ -333,18 +333,38 @@ function drawWave(c, t0, t1, opts){
   g.fillStyle = "#ffd23f";
   for(const m of (cur.markers||[])){ if(m<t0||m>t1) continue; const x = X(m); g.fillRect(x-devicePixelRatio, 0, 2*devicePixelRatio, H); if(opts.big){ g.beginPath(); g.moveTo(x-7*devicePixelRatio,0); g.lineTo(x+7*devicePixelRatio,0); g.lineTo(x,9*devicePixelRatio); g.fill(); } }
   // 再生位置
-  g.fillStyle = "#fff"; const px = X(au.currentTime); g.fillRect(px-devicePixelRatio, 0, 2*devicePixelRatio, H);
+  g.fillStyle = "#fff"; const px = X(viewT()); g.fillRect(px-devicePixelRatio, 0, 2*devicePixelRatio, H);
   if(opts.big){ g.fillStyle = "#93a2af"; g.font = (11*devicePixelRatio)+"px sans-serif"; g.fillText(fmt(t0), 4, H-4); const lab = fmt(t1); g.fillText(lab, W - g.measureText(lab).width - 4, H-4); }
 }
 const ZW = 16; // 拡大表示の幅（秒）
+let dragT = null; const viewT = ()=> dragT===null ? au.currentTime : dragT;
 function draw(){ if(!cur) return; const d = cur.duration||au.duration||0; drawWave(cw, 0, d, {});
-  const c = au.currentTime, t0 = Math.max(0, Math.min(d-ZW, c - ZW*0.35)); drawWave(cz, t0, Math.min(d, t0+ZW), {big:true}); }
+  const c = viewT(), t0 = Math.max(0, Math.min(d-ZW, c - ZW*0.35)); drawWave(cz, t0, Math.min(d, t0+ZW), {big:true}); }
 function canvasSeek(c, ev){
   if(!cur) return; const r = c.getBoundingClientRect(), d = cur.duration||au.duration||0;
   const f = Math.max(0, Math.min(1, (ev.clientX - r.left)/r.width));
   if(c===cw) seek(f*d); else { const t0 = Math.max(0, Math.min(d-ZW, au.currentTime - ZW*0.35)); seek(t0 + f*Math.min(ZW, d)); }
 }
-cw.addEventListener("pointerdown", e=>canvasSeek(cw, e)); cz.addEventListener("pointerdown", e=>canvasSeek(cz, e));
+cw.addEventListener("pointerdown", e=>canvasSeek(cw, e));
+// 拡大波形：指で左右にスワイプすると波形が動き、離したところから再生（タップだけでは飛ばない）
+let drag = null;
+cz.addEventListener("pointerdown", e=>{
+  if(!cur) return; cz.setPointerCapture(e.pointerId);
+  drag = {x:e.clientX, t:au.currentTime, moved:false, playing:!au.paused}; 
+});
+cz.addEventListener("pointermove", e=>{
+  if(!drag) return; const dx = e.clientX - drag.x;
+  if(!drag.moved && Math.abs(dx) < 6) return;
+  if(!drag.moved){ drag.moved = true; if(drag.playing) au.pause(); }
+  const d = cur.duration||au.duration||0, w = cz.getBoundingClientRect().width;
+  dragT = Math.max(0, Math.min(d-0.05, drag.t - dx/w*ZW)); draw();
+});
+const endDrag = ()=>{
+  if(!drag) return; const g = drag; drag = null;
+  if(g.moved && dragT!==null){ const t = dragT; dragT = null; seek(t); if(g.playing) au.play().catch(()=>{}); }
+  else { dragT = null; draw(); }
+};
+cz.addEventListener("pointerup", endDrag); cz.addEventListener("pointercancel", endDrag);
 
 /* ---------- 音声の取り出し（動画もOK） ---------- */
 async function decode16k(blob){
