@@ -40,9 +40,10 @@
   #nowEn{font-size:20px;font-weight:600;min-height:30px;margin-top:6px}
   #nowJa{font-size:15px;color:var(--sub);min-height:22px}
   .scr{max-height:46vh;overflow:auto;margin-top:6px;position:relative}
-  .sl{padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer}
-  .sl.cur{background:var(--seg);border-radius:8px}
-  .sl .tm{font-size:12px;color:var(--sub)}.sl .ja{font-size:14px;color:var(--sub)}
+  .para{margin:0 0 14px;font-size:17px;line-height:1.75}
+  .sl{cursor:pointer;border-radius:5px;padding:1px 0}
+  .sl.cur{background:rgba(63,182,255,.35);color:#fff}
+  .pja{font-size:14px;color:var(--sub);margin:-8px 0 16px;line-height:1.6}
   #msg{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#25303a;border:1px solid var(--line);padding:10px 16px;border-radius:10px;display:none;z-index:9;max-width:90vw}
   .bar{height:6px;background:#25303a;border-radius:3px;overflow:hidden;margin-top:6px}.bar>div{height:100%;background:var(--ac);width:0}
 </style>
@@ -449,7 +450,11 @@ function renderScript(){
   const sc = cur && cur.script;
   if(!sc || !sc.length){ $("#scr").innerHTML = '<p class="small">スクリプトはまだありません。「📝 スクリプト」を押すと、AIが音声を聞き取って英文と和訳を作り、文ごとに区切りも付けます（16分で1〜2分ほど）。</p>'; $("#scrStat").textContent = ""; return; }
   $("#scrStat").textContent = sc.length + "文";
-  $("#scr").innerHTML = sc.map((x,i)=>`<div class="sl" data-i="${i}"><div class="tm">${fmt(x.s)}</div><div>${esc(x.en)}</div>${S.showJa && x.ja ? '<div class="ja">'+esc(x.ja)+'</div>' : ""}</div>`).join("");
+  // 時間は出さず、全文を段落にして並べる（文をタップするとそこから再生）
+  const paras = []; let p = [];
+  sc.forEach((x,i)=>{ p.push(i); const nx = sc[i+1]; if(!nx || p.length >= 6 || nx.s - x.e > 1.5){ paras.push(p); p = []; } });
+  $("#scr").innerHTML = paras.map(ix=>'<p class="para">' + ix.map(i=>`<span class="sl" data-i="${i}">${esc(sc[i].en)}</span>`).join(" ") + "</p>"
+      + (S.showJa ? '<div class="pja">' + ix.map(i=>esc(sc[i].ja||"")).join("") + "</div>" : "")).join("");
 }
 $("#scr").addEventListener("scroll", ()=>{ if(!$("#scr")._auto) userScrollT = Date.now(); });
 $("#scr").addEventListener("touchstart", ()=>{ userScrollT = Date.now(); }, {passive:true});
