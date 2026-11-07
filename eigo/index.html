@@ -130,6 +130,18 @@
   </div>
 
   <div class="card">
+    <b>📝 議事録から例文を作る</b>
+    <p class="small">ボイスレコーダーの文字起こしを、そのまま全部貼り付けてください（テキストファイルを選んでも可）。AIが、近藤さんが英語でうまく言えなかったところを探して、言いたかった文を例文の候補にします。</p>
+    <textarea id="minutes" placeholder="ここに議事録（文字起こし）を貼り付け" style="min-height:120px"></textarea>
+    <div class="row" style="margin-top:6px">
+      <div><label>自分の話者名（わかれば）</label><input id="meSpk" placeholder="例：話者 2、Kondo"></div>
+      <div><label>テキストファイル</label><input id="minFile" type="file" accept=".txt,text/plain"></div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn pri" id="findBtn">🤖 言えなかった表現を探す</button></div>
+    <div id="cands" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
     <b>まとめて取り込む</b>
     <p class="small">1行に「番号. 日本語 / 英語」の形で貼り付けます。区切りは「/」「|」「→」「—」タブのどれでも可。日本語の行の次の行に英語、という2行ずつの形でも読めます。番号がなければ最後の番号の続きになります。</p>
     <textarea id="bulk" placeholder="1. タクシーを呼んでください / Could you call a taxi for me?&#10;2. 少し考えさせてください / Let me think about it for a moment."></textarea>
@@ -922,6 +934,61 @@ $("#items").onclick = e=>{
 $("#search").oninput = renderList;
 $("#cancelEdit").onclick = resetForm;
 $("#testEn").onclick = ()=>{ const t = $("#fEn").value.trim(); if(t) speakEn(t); };
+/* ---------- 議事録から候補 ---------- */
+let cands = [];
+$("#minFile").onchange = async e=>{ const f = e.target.files[0]; if(!f) return; $("#minutes").value = await f.text(); toast("読み込みました"); };
+async function findFromMinutes(text, me){
+  const sys = `You help a Japanese businessperson (seafood trading company in the Netherlands) improve spoken business English.
+You get an automatic transcript of a meeting or call (speaker labels may be unreliable; recognition errors are common).${me ? " The learner is: " + me + "." : " The learner is the non-native speaker whose English is more broken (often Japanese)."}
+Find the places where the learner could not express what they meant well in English: broken or ungrammatical sentences, many restarts or fillers, giving up mid-sentence, switching to Japanese, or saying something too simple/unclear. Also include a few useful phrases the learner clearly needed but lacked.
+For each, write what the learner most likely wanted to say as ONE natural, concise spoken English sentence, and its natural Japanese.
+Skip trivial items (greetings, "OK", "yes"). Merge duplicates. 5 to 15 items, in the order they appear.
+Return JSON only: {"items":[{"ja":"自然な日本語","en":"natural English","said":"what the learner actually said (short excerpt)"}]}`;
+  for(const model of ["gpt-4.1-mini", "gpt-4o-mini"]){
+    try{
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST",
+        headers:{Authorization:"Bearer " + S.key, "Content-Type":"application/json"},
+        body: JSON.stringify({model, temperature:0.2, response_format:{type:"json_object"},
+          messages:[{role:"system", content:sys}, {role:"user", content:text.slice(0, 120000)}]})});
+      if(!r.ok) continue;
+      const j = await r.json(); const g = JSON.parse(j.choices[0].message.content);
+      if(Array.isArray(g.items)) return g.items.filter(x=>x && x.ja && x.en);
+    }catch(e){ console.warn(e); }
+  }
+  return null;
+}
+function renderCands(){
+  if(!cands.length){ $("#cands").innerHTML = ""; return; }
+  $("#cands").innerHTML = cands.map((c,i)=>{
+    const dup = items.find(x=>normJ(x.ja)===normJ(c.ja));
+    return `<label class="item" style="cursor:pointer"><input type="checkbox" data-ci="${i}" ${dup?"":"checked"} style="width:auto;margin-top:4px">
+      <div class="t"><div>${esc(c.ja)}</div><div class="e">${esc(c.en)}</div>
+      ${c.said ? `<div class="small">言っていたこと：${esc(c.said)}</div>` : ""}${dup ? `<div class="small">📌 ${dup.no}番に登録済み</div>` : ""}</div></label>`;
+  }).join("") + '<div class="row" style="margin-top:10px"><button class="btn pri" id="addCands">✅ チェックしたものを登録</button><button class="btn" id="clearCands">やめる</button></div>';
+  $("#addCands").onclick = ()=>{
+    let n = 0, first = null;
+    document.querySelectorAll("#cands input[data-ci]").forEach(cb=>{
+      if(!cb.checked) return;
+      const c = cands[+cb.dataset.ci]; const no = nextNo(); if(first===null) first = no;
+      items.push({no, ja:c.ja.trim(), en:c.en.trim()}); n++;
+      if(S.engine==="openai" && S.key) getTTS(c.en.trim()).catch(()=>{});
+    });
+    saveItems(); cands = []; renderCands(); renderList();
+    toast(n ? `${first}番〜${first+n-1}番に${n}件登録しました` : "登録するものが選ばれていません");
+  };
+  $("#clearCands").onclick = ()=>{ cands = []; renderCands(); };
+}
+$("#findBtn").onclick = async ()=>{
+  const text = $("#minutes").value.trim();
+  if(text.length < 50){ toast("議事録を貼り付けてください"); return; }
+  if(!S.key){ toast("設定でOpenAI APIキーを入れてください"); return; }
+  $("#findBtn").textContent = "探しています…（数十秒）"; $("#findBtn").disabled = true;
+  const r = await findFromMinutes(text, $("#meSpk").value.trim());
+  $("#findBtn").textContent = "🤖 言えなかった表現を探す"; $("#findBtn").disabled = false;
+  if(!r){ toast("うまく探せませんでした。もう一度試してください"); return; }
+  if(!r.length){ toast("言えなかった表現は見つかりませんでした"); return; }
+  cands = r; renderCands(); toast(r.length + "件見つかりました。確認して登録してください");
+};
 $("#aiFill").onclick = async ()=>{
   const ja = $("#fJa").value.trim(), en = $("#fEn").value.trim();
   if(!ja && !en){ toast("日本語を入れてください"); return; }
