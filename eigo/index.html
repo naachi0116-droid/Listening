@@ -62,6 +62,7 @@
       <div><label>順番</label><select id="order"><option value="seq">番号順</option><option value="rnd">ランダム</option></select></div>
     </div>
     <div style="margin-top:12px"><button class="btn pri big" id="startBtn">▶ スタート</button></div>
+    <div style="margin-top:8px"><button class="btn big howBtn" style="font-size:18px;padding:14px">🎙 英語で何て言う？（聞いて登録）</button></div>
     <p class="small" id="micNote"></p>
   </div>
 
@@ -95,6 +96,7 @@
       <tr><td>「1番から20番」</td><td>出題する範囲を決める（スタート直後に聞かれます。いつ言っても可）</td></tr>
       <tr><td>「30番」</td><td>その番号の問題へ移動</td></tr>
       <tr><td>「登録文を今の言い方に変えて」</td><td>さっき答えた英文で、その番号の登録文を書き換え（「はい」で確定）</td></tr>
+      <tr><td>「○○って英語で何て言うの？」</td><td>英語を答えて、「はい」でその場で登録</td></tr>
       <tr><td>「これは何グラムですか、を追加して」</td><td>AIが英文を作って読み上げ、「はい」で新しい番号に登録</td></tr>
       <tr><td>「答え」「わからない」</td><td>すぐ答えを読む</td></tr>
       <tr><td>「なんでisなの？areじゃないの？」</td><td>AIの先生が日本語で短く説明（「どうして」「違いは」「意味」「似た問題」「他の言い方」なども可）</td></tr>
@@ -114,6 +116,8 @@
 <!-- ===== 例文 ===== -->
 <section id="list">
   <div class="card">
+    <div style="margin-bottom:12px"><button class="btn pri big howBtn" style="font-size:18px;padding:14px">🎙 英語で何て言う？（会話で聞いて登録）</button>
+    <p class="small">押してから「○○って英語で何て言うの？」と話しかけると、英語を答えて「登録しますか？」と聞きます。「はい」で登録、続けて何回でも聞けます。「終わり」で終了。</p></div>
     <b id="formTitle">例文を追加</b>
     <div class="row">
       <div style="flex:0 0 90px"><label>番号</label><input id="fNo" type="number" inputmode="numeric"></div>
@@ -404,7 +408,9 @@ function listenWindow(ms, kind){
 function onHeard(text){
   if(!curWin) return;
   if(curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
-  if(curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); return; }
+  if(curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); else { const c = parseCommand(text); if(c && c.type==="repeat") curWin.finish({type:"again", cmd:c}); } return; }
+  if(curWin.kind==="how"){ const c = parseCommand(text); if(c && ["stop","pause"].includes(c.type)){ curWin.finish({type:"cmd", cmd:{type:"stop"}}); return; } if(/練習/.test(text) && text.length < 12){ curWin.finish({type:"cmd", cmd:{type:"practice"}}); return; } if(c){ if(c.type==="repeat" && lastHowEn) curWin.finish({type:"again", cmd:c}); return; } if(YES.test(normJ(text)) || NO.test(normJ(text)) || normJ(text).length < 4) return; curWin.finish({type:"speech", text}); return; }
+  if(S.key && isHowRequest(text)){ curWin.finish({type:"cmd", cmd:{type:"add", q:text, how:true}}); return; }
   if(isChangeRequest(text)){ curWin.finish({type:"cmd", cmd:{type:"change"}}); return; }
   if(S.key && isAddRequest(text)){ curWin.finish({type:"cmd", cmd:{type:"add", q:text}}); return; }
   if(S.key && isQuestion(text) && curWin.kind!=="range"){ curWin.finish({type:"cmd", cmd:{type:"ask", q:text}}); return; }
@@ -470,7 +476,7 @@ const aiMic = {
     } else {
       this.seg.push(d);
       if(rms > th*0.8){ this.silMs = 0; this.onMs += ms; } else this.silMs += ms;
-      const need = (curWin && curWin.kind==="think") ? S.endSil*1000 : 700;
+      const need = (curWin && (curWin.kind==="think" || curWin.kind==="how")) ? S.endSil*1000 : 700;
       const total = this.seg.length*ms;
       if(this.silMs >= need || total > 30000){
         const seg = this.seg, voiced = this.onMs;
@@ -489,9 +495,11 @@ const aiMic = {
     $("#heard").textContent = "🎤 " + text;
     if(speakingJa && normJ(text).length >= 2 && normJ(speakingJa).includes(normJ(text))) return;  // 自分の問題の読み上げを拾ったもの
     if(curWin && curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
-    if(curWin && curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); else { const c = parseCommand(text); if(c && c.type==="stop") sendCmd(c); } return; }
+    if(curWin && curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); else { const c = parseCommand(text); if(c && c.type==="stop") sendCmd(c); else if(c && (c.type==="repeat" || c.type==="slower" || c.type==="faster")) curWin.finish({type:"again", cmd:c}); } return; }
+    if(curWin && curWin.kind==="how"){ const c = parseCommand(text); if(c && ["stop","pause"].includes(c.type)){ sendCmd({type:"stop"}); return; } if(/練習/.test(text) && text.length < 12){ curWin.finish({type:"cmd", cmd:{type:"practice"}}); return; } if(c){ if(c.type==="repeat" && lastHowEn) curWin.finish({type:"again", cmd:c}); return; } if(YES.test(normJ(text)) || NO.test(normJ(text)) || normJ(text).length < 4) return; curWin.finish({type:"speech", text}); return; }
     if(shadowing && !parseCommand(text)) return;
     if(isChangeRequest(text)){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"change"}); return; }
+    if(S.key && isHowRequest(text)){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"add", q:text, how:true}); return; }
     if(S.key && isAddRequest(text)){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"add", q:text}); return; }
     if(S.key && isQuestion(text) && (!curWin || curWin.kind!=="range")){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"ask", q:text}); return; }
     const cmd = parseCommand(text);
@@ -531,8 +539,10 @@ async function askAI(it, q){
 
 /* ---------- 声で例文を追加 ---------- */
 const ADD_CUE = /追加|登録|覚えたい|入れておいて|入れといて/;
+const HOW_CUE = /英語で.{0,6}(何て|なんて|どう|どの)|(何て|なんて)言う|どう言う|どう言え|どういうふうに言|どう表現|英訳|英語にして/;
+function isHowRequest(text){ return /[ぁ-んァ-ン一-龥]/.test(text) && HOW_CUE.test(text.replace(/\s/g,"")); }
 function isAddRequest(text){ return /[ぁ-んァ-ン一-龥]/.test(text) && ADD_CUE.test(text) && text.replace(/\s/g,"").length > 5; }
-let addReq = "", addDraft = null;
+let addReq = "", addDraft = null, addHow = false, howMode = false, lastHowEn = "";
 async function makeEntry(req){
   const sys = `The user (a Japanese businessperson living in the Netherlands, working in seafood trading) wants to register a practice sentence for English speaking drills.
 From the user's request, extract the Japanese sentence they want to learn, and give natural, polite but simple spoken English for it (the way a native speaker would actually say it in that situation).
@@ -677,7 +687,9 @@ function applyCmd(c, phase){
     case "stop": running = false; return "stop";
     case "jump": jumpNo = c.no; return "jump";
     case "ask": askQ = c.q; return "ask";
-    case "add": addReq = c.q; return "add";
+    case "add": addReq = c.q; addHow = !!c.how; return "add";
+    case "practice": howMode = false; return "askrange";
+    case "how": howMode = true; return "askhow";
     case "change": return "change";
     case "range": return setRange(c.a, c.b) ? "question" : (phase==="range" ? "askrange" : "question");
   }
@@ -728,8 +740,9 @@ async function playAnswerInner(n, it){
   setStatus("🎤「次」で次の問題へ（「もう一回」「10回」「速さ0.8」も可）");
   return listenWindow(Infinity, "after");
 }
-async function loop(){
-  let action = aiMic.active || rec ? "askrange" : "question";
+async function loop(start){
+  let action = start || (aiMic.active || rec ? "askrange" : "question");
+  let howFirst = true;
   while(running){
     if(action==="stop") break;
     if(action==="pause"){
@@ -754,20 +767,32 @@ async function loop(){
       setStatus("🤖 英文を作っています…");
       const g = await makeEntry(addReq);
       if(!running) break;
-      if(!g){ await speakJa("すみません、うまく作れませんでした。"); action = "afteradd"; continue; }
+      if(!g){ await speakJa("すみません、うまく作れませんでした。"); action = howMode ? "askhow" : "afteradd"; continue; }
       const dup = items.find(x=>normJ(x.ja)===normJ(g.ja));
       if(dup){
         $("#verdict").innerHTML = '<span class="small">📌 ' + dup.no + "番に登録済み：" + esc(dup.ja) + " / " + esc(dup.en) + "</span>";
+        if(addHow) lastHowEn = dup.en;
+        await speakJa("英語では、"); if(!running) break; await speakEn(dup.en); if(!running) break;
         await speakJa("これは、もう" + dup.no + "番に登録されています。"); if(!running) break;
-        action = "afteradd"; continue;
+        action = howMode ? "askhow" : "afteradd"; continue;
       }
-      const no = nextNo();
+      const no = nextNo(); if(addHow) lastHowEn = g.en;
+      $("#ja").textContent = g.ja; $("#en").textContent = g.en; $("#en").classList.remove("hide"); $("#no").textContent = "新規";
       $("#verdict").innerHTML = '<span class="small">➕ ' + no + "番に登録しますか？<br>" + esc(g.ja) + "<br>" + esc(g.en) + "</span>";
-      await speakJa(no + "番に登録します。" + g.ja); if(!running) break;
+      if(addHow) await speakJa("英語では、こう言います。"); else await speakJa(no + "番に登録します。" + g.ja);
+      if(!running) break;
       await speakEn(g.en); if(!running) break;
-      await speakJa("よければ、はい。やめるなら、いいえ。"); if(!running) break;
-      setStatus("🎤「はい」で登録／「いいえ」でやめる");
-      const w = await listenWindow(Infinity, "confirm");
+      await speakJa(addHow ? no + "番に登録しますか？はい、か、いいえ。もう一回、で繰り返します。" : "よければ、はい。やめるなら、いいえ。"); if(!running) break;
+      setStatus("🎤「はい」で登録／「いいえ」でやめる／「もう一回」「5回読んで」で聞き直し");
+      let w;
+      while(true){
+        w = await listenWindow(Infinity, "confirm");
+        if(!running || w.type!=="again") break;
+        if(w.cmd.type==="slower") changeRate(-0.1); else if(w.cmd.type==="faster") changeRate(+0.1);
+        const n = w.cmd.type==="repeat" ? w.cmd.n : 1;
+        for(let i=0; i<n && running; i++){ await speakEn(g.en); if(i < n-1) await sleep(Math.max(0, S.gap)*1000); }
+        if(running) await speakJa("登録しますか？");
+      }
       if(!running) break;
       if(w.type==="yes"){
         items.push({no, ja:g.ja, en:g.en}); saveItems();
@@ -776,7 +801,21 @@ async function loop(){
         await speakJa(no + "番に登録しました。");
       } else { $("#verdict").innerHTML = ""; await speakJa("登録をやめました。"); }
       if(!running) break;
-      action = "afteradd"; continue;
+      action = howMode ? "askhow" : "afteradd"; continue;
+    }
+    if(action==="askhow"){
+      $("#no").textContent = "🎙"; $("#en").textContent = ""; $("#en").classList.add("hide");
+      $("#ja").textContent = "英語で何て言いたいですか？";
+      setStatus("🎤「○○って英語で何て言う？」／「終わり」で終了／「練習」で出題へ");
+      if(howFirst){ howFirst = false; await speakJa("英語で何と言いたいですか？"); } else await speakJa("ほかにありますか？");
+      if(!running) break;
+      let w;
+      if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
+      else w = await listenWindow(Infinity, "how");
+      if(!running) break;
+      if(w.type==="again"){ const n = w.cmd.n || 1; for(let i=0; i<n && running; i++){ await speakEn(lastHowEn); if(i < n-1) await sleep(Math.max(0, S.gap)*1000); } howFirst = false; continue; }
+      if(w.type==="cmd"){ action = w.cmd.type==="add" ? applyCmd(w.cmd, "answer") : (w.cmd.type==="practice" ? applyCmd(w.cmd, "answer") : (w.cmd.type==="stop" ? "stop" : "askhow")); continue; }
+      addReq = w.text; addHow = true; action = "add"; continue;
     }
     if(action==="change"){
       const it = cur();
@@ -884,7 +923,7 @@ async function loop(){
   finishSession();
 }
 function finishSession(){
-  running = false; stopListen(); cancelSpeech(); if(aiMic.active) aiMic.stop();
+  running = false; howMode = false; stopListen(); cancelSpeech(); if(aiMic.active) aiMic.stop();
   $("#startBtn").textContent = "▶ スタート"; $("#pauseBtn").textContent = "⏸ ストップ";
   setStatus("終了しました"); $("#heard").textContent = "";
   if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
@@ -892,13 +931,23 @@ function finishSession(){
 async function keepAwake(){ try{ if("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
 document.addEventListener("visibilitychange", ()=>{ if(running && document.visibilityState==="visible") keepAwake(); });
 
+document.querySelectorAll(".howBtn").forEach(b=>b.onclick = ()=>{
+  if(!S.key){ toast("設定でOpenAI APIキーを入れてください"); return; }
+  document.querySelectorAll("header button").forEach(x=>x.classList.toggle("on", x.dataset.tab==="play"));
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("on", s.id==="play"));
+  if(running){ howMode = true; sendCmd({type:"how"}); return; }
+  startSession("askhow");
+});
 $("#startBtn").onclick = ()=>{
   if(S.engine==="openai" && !S.key) toast("APIキーがないので内蔵の声で読みます（設定で入れてください）");
   if(running){ sendCmd({type:"stop"}); return; }
+  startSession();
+};
+function startSession(mode){
   const a = +$("#from").value || 1, b = +$("#to").value || 9999;
   const lo = Math.min(a,b), hi = Math.max(a,b);
   order = items.filter(x=>x.no>=lo && x.no<=hi);
-  if(!order.length){ toast("その範囲に例文がありません"); return; }
+  if(!order.length && mode!=="askhow"){ toast("その範囲に例文がありません"); return; }
   if($("#order").value==="rnd") for(let i=order.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [order[i],order[j]]=[order[j],order[i]]; }
   LS.set("eq_range", {a, b, o:$("#order").value});
   // スマホで音を出す許可をこのタップで取っておく
@@ -911,9 +960,10 @@ $("#startBtn").onclick = ()=>{
       try{ await aiMic.start(); $("#micP").textContent = "🎙 AI聞き取り"; }
       catch(e){ console.warn(e); toast("マイクが使えないので内蔵の聞き取りにします"); $("#micP").textContent = "🎙 内蔵（AI不可）"; }
     } else $("#micP").textContent = S.key ? "🎙 内蔵" : "🎙 内蔵（キーなし）";
-    loop();
+    if(mode==="askhow") howMode = true;
+    loop(mode);
   })();
-};
+}
 function silentWav(){
   const n = 800, b = new ArrayBuffer(44 + n), v = new DataView(b), w = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
   w(0,"RIFF"); v.setUint32(4,36+n,true); w(8,"WAVE"); w(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
