@@ -35,7 +35,7 @@
   .time{display:flex;justify-content:space-between;font-size:14px;color:var(--sub);margin-top:4px}
   #segInfo{font-size:14px;color:var(--mk);text-align:center;min-height:21px}
   .grid{display:grid;gap:6px;margin-top:8px}
-  .g5{grid-template-columns:repeat(5,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .g5{grid-template-columns:repeat(5,1fr)}.g2{grid-template-columns:repeat(2,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
   .grid .btn{padding:14px 2px;font-size:17px}
   #nowEn{font-size:20px;font-weight:600;min-height:30px;margin-top:6px}
   #nowJa{font-size:15px;color:var(--sub);min-height:22px}
@@ -82,6 +82,10 @@
       <button class="btn pri" id="bPlay">▶</button>
       <button class="btn" id="bFwd">+5秒</button>
       <button class="btn" id="bNext">⏭</button>
+    </div>
+    <div class="grid g2">
+      <button class="btn" id="bBackS">−0.5秒</button>
+      <button class="btn" id="bFwdS">+0.5秒</button>
     </div>
     <div class="grid g4">
       <button class="btn" id="bLoop">🔁 ループ</button>
@@ -243,6 +247,7 @@ au.onplay = ()=>{ $("#bPlay").textContent = "⏸"; tick(); if(navigator.mediaSes
 au.onpause = ()=>{ $("#bPlay").textContent = "▶"; saveMeta(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "paused"; };
 function seek(t){ if(!cur) return; au.currentTime = Math.max(0, Math.min((cur.duration||au.duration||0)-0.05, t)); loopCount = 0; if(loopOn){ const r = segRange(segIndex(au.currentTime + 0.03)); loopR = [r[0], r[1]]; } draw(); }
 $("#bBack").onclick = ()=>seek(au.currentTime-5); $("#bFwd").onclick = ()=>seek(au.currentTime+5);
+$("#bBackS").onclick = ()=>seek(au.currentTime-0.5); $("#bFwdS").onclick = ()=>seek(au.currentTime+0.5);
 function gotoSeg(d){ if(!cur) return; const i = segIndex(au.currentTime); const [s] = segRange(i); let j = i + d;
   if(d<0 && au.currentTime - s > 1.5) j = i;   // 区切りの途中なら、まずその頭へ
   const [s2] = segRange(j); seek(s2); if(au.paused) au.play().catch(()=>{}); }
