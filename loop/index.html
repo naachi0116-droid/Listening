@@ -39,7 +39,7 @@
   .grid .btn{padding:14px 2px;font-size:17px}
   #nowEn{font-size:20px;font-weight:600;min-height:30px;margin-top:6px}
   #nowJa{font-size:15px;color:var(--sub);min-height:22px}
-  .scr{max-height:46vh;overflow:auto;margin-top:6px}
+  .scr{max-height:46vh;overflow:auto;margin-top:6px;position:relative}
   .sl{padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer}
   .sl.cur{background:var(--seg);border-radius:8px}
   .sl .tm{font-size:12px;color:var(--sub)}.sl .ja{font-size:14px;color:var(--sub)}
@@ -269,7 +269,13 @@ $("#bScr").onclick = ()=>makeScript();
 /* 再生位置の監視（ループ・表示） */
 let ticking = false, waiting = false;
 function tick(){ if(ticking) return; ticking = true; const f = ()=>{ if(au.paused){ ticking = false; update(); return; } update(); requestAnimationFrame(f); }; requestAnimationFrame(f); }
-let lastScrIdx = -1;
+let lastScrIdx = -1, userScrollT = 0;
+function followScript(el){
+  if(Date.now() - userScrollT < 4000) return;   // 自分でスクロールした直後は動かさない
+  const box = $("#scr"); box._auto = true;
+  box.scrollTo({top: Math.max(0, el.offsetTop - box.clientHeight/3), behavior:"smooth"});
+  setTimeout(()=>{ box._auto = false; }, 600);
+}
 async function update(){
   if(!cur) return;
   const t = au.currentTime, d = cur.duration || au.duration || 0;
@@ -293,7 +299,7 @@ async function update(){
       lastScrIdx = k;
       $("#nowEn").textContent = k>=0 ? sc[k].en : ""; $("#nowJa").textContent = (k>=0 && S.showJa) ? (sc[k].ja||"") : "";
       document.querySelectorAll(".sl.cur").forEach(x=>x.classList.remove("cur"));
-      const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); const box = $("#scr"); if(el.offsetTop < box.scrollTop || el.offsetTop > box.scrollTop + box.clientHeight - 60) box.scrollTop = el.offsetTop - 40; }
+      const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); followScript(el); }
     }
   } else { $("#nowEn").textContent = ""; $("#nowJa").textContent = ""; }
   draw();
@@ -445,6 +451,8 @@ function renderScript(){
   $("#scrStat").textContent = sc.length + "文";
   $("#scr").innerHTML = sc.map((x,i)=>`<div class="sl" data-i="${i}"><div class="tm">${fmt(x.s)}</div><div>${esc(x.en)}</div>${S.showJa && x.ja ? '<div class="ja">'+esc(x.ja)+'</div>' : ""}</div>`).join("");
 }
+$("#scr").addEventListener("scroll", ()=>{ if(!$("#scr")._auto) userScrollT = Date.now(); });
+$("#scr").addEventListener("touchstart", ()=>{ userScrollT = Date.now(); }, {passive:true});
 $("#scr").onclick = e=>{ const r = e.target.closest(".sl"); if(!r || !cur) return; const x = cur.script[+r.dataset.i]; seek(x.s + 0.01); au.play().catch(()=>{}); };
 
 /* ---------- 車・イヤホンのボタン ---------- */
