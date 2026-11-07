@@ -94,6 +94,7 @@
       <tr><td>「前」「戻って」</td><td>前の問題へ</td></tr>
       <tr><td>「1番から20番」</td><td>出題する範囲を決める（スタート直後に聞かれます。いつ言っても可）</td></tr>
       <tr><td>「30番」</td><td>その番号の問題へ移動</td></tr>
+      <tr><td>「登録文を今の言い方に変えて」</td><td>さっき答えた英文で、その番号の登録文を書き換え（「はい」で確定）</td></tr>
       <tr><td>「これは何グラムですか、を追加して」</td><td>AIが英文を作って読み上げ、「はい」で新しい番号に登録</td></tr>
       <tr><td>「答え」「わからない」</td><td>すぐ答えを読む</td></tr>
       <tr><td>「なんでisなの？areじゃないの？」</td><td>AIの先生が日本語で短く説明（「どうして」「違いは」「意味」「似た問題」「他の言い方」なども可）</td></tr>
@@ -403,6 +404,7 @@ function onHeard(text){
   if(!curWin) return;
   if(curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
   if(curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); return; }
+  if(isChangeRequest(text)){ curWin.finish({type:"cmd", cmd:{type:"change"}}); return; }
   if(S.key && isAddRequest(text)){ curWin.finish({type:"cmd", cmd:{type:"add", q:text}}); return; }
   if(S.key && isQuestion(text) && curWin.kind!=="range"){ curWin.finish({type:"cmd", cmd:{type:"ask", q:text}}); return; }
   const cmd = parseCommand(text);
@@ -488,6 +490,7 @@ const aiMic = {
     if(curWin && curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
     if(curWin && curWin.kind==="confirm"){ const n = normJ(text); if(YES.test(n)) curWin.finish({type:"yes"}); else if(NO.test(n)) curWin.finish({type:"no"}); else { const c = parseCommand(text); if(c && c.type==="stop") sendCmd(c); } return; }
     if(shadowing && !parseCommand(text)) return;
+    if(isChangeRequest(text)){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"change"}); return; }
     if(S.key && isAddRequest(text)){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"add", q:text}); return; }
     if(S.key && isQuestion(text) && (!curWin || curWin.kind!=="range")){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"ask", q:text}); return; }
     const cmd = parseCommand(text);
@@ -502,7 +505,7 @@ const aiMic = {
 /* ---------- 質問にAIが答える ---------- */
 const Q_CUE = /なんで|何で|どうして|なぜ|違い|ちがい|意味|って何|ってなに|ってどう|とは|どういう|教えて|使い方|似た|類似|言い換え|他の言い方|ほかの言い方|別の言い方|質問|使える|使わない|じゃない|じゃだめ|ではだめ|でもいい|でもいけ|でも大丈夫|ニュアンス/;
 function isQuestion(text){ return /[ぁ-んァ-ン一-龥]/.test(text) && Q_CUE.test(text.replace(/\s/g,"")); }
-let lastSaid = "";
+let lastSaid = "", lastSaidNo = null, lastFixed = "", lastVerdict = "";
 async function askAI(it, q){
   const sys = `あなたは運転中の日本人ビジネスパーソンに英語を教える先生です。返事はそのまま音声で読み上げられます。
 - 日本語で、短く（2〜4文、全体で150字以内）。結論から言う。
@@ -548,6 +551,8 @@ Return JSON only: {"ja":"Japanese sentence","en":"English sentence"}`;
   return null;
 }
 const NO = /^(いいえ|いや|やめ|キャンセル|ちがう|違う|no|ノー|だめ|ダメ)/;
+const CHG = /(登録文|登録|英文|答え|正解).{0,12}(変え|変更|差し替え|置き換え|書き換え)|(今|いま|さっき|自分).{0,8}(言い方|やつ|英文|の方|ほう).{0,6}(にして|に変え|に変更|で登録)/;
+function isChangeRequest(text){ return /[ぁ-んァ-ン一-龥]/.test(text) && CHG.test(text.replace(/\s/g,"")); }
 
 /* ---------- AIで正誤判定 ---------- */
 async function judgeAnswer(it, said){
@@ -556,7 +561,9 @@ async function judgeAnswer(it, said){
 The learner's answer is an automatic speech transcript. IGNORE fillers (um, uh, ah, er, well, えーと, あー), hesitations, false starts, repeated words or phrases (e.g. "we expect, we expect"), and self-corrections. Judge only the final sentence the learner intended to say.
 Accept any natural, grammatical English that conveys the same meaning as the Japanese, even if the wording differs from the reference answer.
 verdict: "correct" = same meaning and grammatical (tiny pronunciation-like transcript noise is fine); "close" = meaning mostly right but has a grammar, word-choice or missing-detail problem; "wrong" = meaning different or most of it missing.
-Return JSON only: {"verdict":"correct|close|wrong","cleaned":"the learner's intended sentence without fillers/repetitions","point":"Japanese, max 35 characters: the single most important fix. Empty string if correct."}`;
+"same" = true only if the learner's wording is essentially the same as the reference answer (ignore tiny differences like contractions or articles); false if they used a different but valid way of saying it.
+"fixed" = the learner's own intended sentence with the minimum corrections needed to be natural and grammatical (keep their wording as much as possible).
+Return JSON only: {"verdict":"correct|close|wrong","same":true,"cleaned":"the learner's intended sentence without fillers/repetitions","fixed":"...","point":"Japanese, max 35 characters: the single most important fix. Empty string if correct."}`;
   const user = `Japanese: ${it.ja}\nReference answer: ${it.en}\nLearner transcript: ${said}`;
   try{
     const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST",
@@ -571,7 +578,7 @@ Return JSON only: {"verdict":"correct|close|wrong","cleaned":"the learner's inte
 }
 function showVerdict(g, said){
   const lab = {correct:'<span class="ok">✅ 正解</span>', close:'<span class="cl">🔶 不正解（おしい）</span>', wrong:'<span class="ng">❌ 不正解</span>'}[g.verdict];
-  lastSaid = g.cleaned || said;
+  lastSaid = g.cleaned || said; lastFixed = g.fixed || lastSaid; lastVerdict = g.verdict; lastSaidNo = cur() ? cur().no : null;
   $("#verdict").innerHTML = lab + (g.point ? "　" + esc(g.point) : "") + '<div class="small">あなた: ' + esc(g.cleaned || said) + "</div>";
 }
 
@@ -670,6 +677,7 @@ function applyCmd(c, phase){
     case "jump": jumpNo = c.no; return "jump";
     case "ask": askQ = c.q; return "ask";
     case "add": addReq = c.q; return "add";
+    case "change": return "change";
     case "range": return setRange(c.a, c.b) ? "question" : (phase==="range" ? "askrange" : "question");
   }
   return "next";
@@ -769,6 +777,28 @@ async function loop(){
       if(!running) break;
       action = "afteradd"; continue;
     }
+    if(action==="change"){
+      const it = cur();
+      if(!it || lastSaidNo !== it.no || !lastFixed){ await speakJa("先に、この問題に英語で答えてください。"); if(!running) break; action = "afteradd"; continue; }
+      if(normJ(lastFixed) === normJ(it.en)){ await speakJa("今の英文は、登録文と同じです。"); if(!running) break; action = "afteradd"; continue; }
+      $("#verdict").innerHTML = '<span class="small">✏️ ' + it.no + "番の英文を変更しますか？<br>今：" + esc(it.en) + "<br>新：" + esc(lastFixed) + "</span>";
+      await speakJa(it.no + "番の英文を、こう変えます。" + (lastVerdict!=="correct" ? "少し直してあります。" : "")); if(!running) break;
+      await speakEn(lastFixed); if(!running) break;
+      await speakJa("よければ、はい。やめるなら、いいえ。"); if(!running) break;
+      setStatus("🎤「はい」で変更／「いいえ」でやめる");
+      const w = await listenWindow(Infinity, "confirm");
+      if(!running) break;
+      if(w.type==="yes"){
+        const old = it.en; it.en = lastFixed;
+        const orig = items.find(x=>x.no===it.no); if(orig && orig!==it) orig.en = lastFixed;
+        saveItems(); if(S.engine==="openai" && S.key) getTTS(it.en).catch(()=>{});
+        $("#verdict").innerHTML = '<span class="ok">✅ ' + it.no + "番を変更しました</span><br><span class=\"small\">前：" + esc(old) + "<br>新：" + esc(it.en) + "</span>";
+        render(true); $("#en").classList.remove("hide");
+        await speakJa("変更しました。");
+      } else { await speakJa("変更をやめました。"); }
+      if(!running) break;
+      action = "afteradd"; continue;
+    }
     if(action==="afteradd"){
       let w;
       if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
@@ -833,7 +863,7 @@ async function loop(){
           if(!g){ await speakJa("判定できませんでした。"); if(!running) break; }
           if(g){
             render(true); showVerdict(g, w.text);
-            const say = g.verdict==="correct" ? "正解です。" : (g.verdict==="close" ? "不正解。おしいです。" : "不正解です。") + (g.point ? "ポイントは、" + g.point : "");
+            const say = g.verdict==="correct" ? (g.same===false ? "正解です。その言い方でも十分通じます。登録文はこちらです。" : "正解です。") : (g.verdict==="close" ? "不正解。おしいです。" : "不正解です。") + (g.point ? "ポイントは、" + g.point : "");
             await speakJa(say);
             if(!running) break;
             if(queued){ const c = queued; queued = null; action = applyCmd(c, "answer"); continue; }
