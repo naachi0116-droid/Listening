@@ -375,16 +375,34 @@ function wavChunk(pcm, rate, st, en){
 
 /* ---------- AIでスクリプト ---------- */
 function setProg(p, txt){ $("#prog").style.display = p===null ? "none" : "block"; $("#prog>div").style.width = (p||0)+"%"; if(txt!==undefined) $("#scrStat").textContent = txt; }
-async function transcribeChunk(blob, prompt){
-  for(const model of ["whisper-1", "gpt-transcribe"]){
-    const fd = new FormData(); fd.append("file", blob, "a.wav"); fd.append("model", model);
-    fd.append("response_format", "verbose_json"); fd.append("timestamp_granularities[]", "segment");
-    if(prompt) fd.append("prompt", prompt.slice(-400));
-    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer "+S.key}, body:fd});
-    if(r.ok){ const j = await r.json(); if(j.segments) return j.segments; }
-    else if(r.status===401) throw new Error("APIキーが使えません");
+async function transcribeChunk(blob){
+  for(let attempt=0; attempt<2; attempt++){
+    for(const model of ["whisper-1", "gpt-transcribe"]){
+      const fd = new FormData(); fd.append("file", blob, "a.wav"); fd.append("model", model);
+      fd.append("response_format", "verbose_json");
+      fd.append("timestamp_granularities[]", "word"); fd.append("timestamp_granularities[]", "segment");
+      try{
+        const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer "+S.key}, body:fd});
+        if(r.ok){ const j = await r.json(); if(j.segments) return {segments:j.segments, words:j.words||[]}; }
+        else if(r.status===401) throw new Error("APIキーが使えません");
+      }catch(e){ if(/APIキー/.test(e.message)) throw e; }
+    }
+    await sleep(1500);
   }
   throw new Error("文字起こしに失敗しました");
+}
+// 話のすき間（音が小さいところ）で40〜60秒ごとに区切る。短く区切ると聞き落としが減り、時間も正確になる
+function splitPoints(pcm, rate){
+  const fr = Math.round(rate*0.05), n = Math.floor(pcm.length/fr), en = new Float32Array(n);
+  for(let f=0; f<n; f++){ let s = 0; const st = f*fr; for(let i=0;i<fr;i+=2){ const v = pcm[st+i]; s += v*v; } en[f] = s; }
+  const pts = [0]; let st = 0;
+  while(st + 60*20 < n){
+    let best = st + 50*20, bv = Infinity;
+    for(let f = st + 40*20; f < st + 60*20; f++){ let v = 0; for(let k=-4;k<=4;k++) v += en[f+k]||0; if(v < bv){ bv = v; best = f; } }
+    pts.push(best); st = best;
+  }
+  pts.push(n);
+  return pts.map(f=>Math.min(pcm.length, f*fr));
 }
 function splitSentences(segsIn){
   // 句点で終わらないものは次とつなぎ、長すぎるものはそのまま
@@ -426,14 +444,30 @@ async function makeScript(){
     const blob = await DB.get("blobs", me.id);
     const {data, rate} = await decode16k(blob);
     if(!me.peaks){ peaks = peaksFrom(data, 4000); me.peaks = peaks; }
-    const CH = rate*600, all = []; let prompt = "";
-    for(let st=0; st<data.length; st+=CH){
-      const en = Math.min(data.length, st+CH);
-      setProg(5 + Math.round(st/data.length*85), `文字にしています… ${fmt(st/rate)} / ${fmt(data.length/rate)}`);
-      const sg = await transcribeChunk(wavChunk(data, rate, st, en), prompt);
-      for(const s of sg) all.push({start:s.start + st/rate, end:s.end + st/rate, text:s.text});
-      prompt = sg.map(s=>s.text).join(" ");
+    const pts = splitPoints(data, rate), jobs = [];
+    for(let i=0;i<pts.length-1;i++) jobs.push([pts[i], pts[i+1]]);
+    const results = new Array(jobs.length); let done = 0, next = 0;
+    setProg(5, `文字にしています… 0 / ${jobs.length}`);
+    const worker = async ()=>{
+      while(next < jobs.length){
+        const k = next++, [st, en] = jobs[k];
+        results[k] = {off: st/rate, r: await transcribeChunk(wavChunk(data, rate, st, en))};
+        done++; setProg(5 + Math.round(done/jobs.length*85), `文字にしています… ${done} / ${jobs.length}`);
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    const all = [];
+    for(const {off, r} of results){
+      const words = r.words || [];
+      for(const s of r.segments){
+        if((s.no_speech_prob||0) > 0.7 && (s.avg_logprob||0) < -0.8) continue;   // 音楽などを文字にした誤り
+        let st = s.start, en = s.end;
+        const ws = words.filter(w=>w.start >= s.start - 0.3 && w.end <= s.end + 0.3);
+        if(ws.length){ st = ws[0].start; en = ws[ws.length-1].end; }   // 単語の時間で正確に
+        all.push({start: st + off, end: en + off, text: s.text});
+      }
     }
+    all.sort((a,b)=>a.start-b.start);
     const sc = splitSentences(all);
     await translate(sc);
     me.script = sc;
