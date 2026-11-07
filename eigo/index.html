@@ -446,7 +446,8 @@ const aiMic = {
       if(this.silMs >= need || total > 30000){
         const seg = this.seg, voiced = this.onMs;
         this.seg = []; this.inSpeech = false; this.onMs = 0; this.silMs = 0;
-        if(voiced >= 300) this.send(seg); else if(this.ans) this.armPend();
+        if(shadowing && voiced > 1500){ /* シャドーイング中の長い発話は無視（短い「次」「ストップ」だけ聞く） */ }
+        else if(voiced >= 300) this.send(seg); else if(this.ans) this.armPend();
       }
     }
   },
@@ -459,6 +460,7 @@ const aiMic = {
     $("#heard").textContent = "🎤 " + text;
     if(speakingJa && normJ(text).length >= 2 && normJ(speakingJa).includes(normJ(text))) return;  // 自分の問題の読み上げを拾ったもの
     if(curWin && curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
+    if(shadowing && !parseCommand(text)) return;
     if(S.key && isQuestion(text) && (!curWin || curWin.kind!=="range")){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd({type:"ask", q:text}); return; }
     const cmd = parseCommand(text);
     if(cmd){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd(cmd); return; }
@@ -582,7 +584,7 @@ function parseCommand(raw){
 }
 
 /* ---------- 練習の進行 ---------- */
-let askQ = "", jumpNo = 0, running = false, paused = false, queued = null, order = [], pos = 0, resumeAction = "question", wakeLock = null;
+let shadowing = false, lastQNo = null, askQ = "", jumpNo = 0, running = false, paused = false, queued = null, order = [], pos = 0, resumeAction = "question", wakeLock = null;
 function cur(){ return order[pos]; }
 function setStatus(t){ $("#status").textContent = t; }
 function showRate(){ $("#rateP").textContent = S.rate.toFixed(1) + "x"; }
@@ -637,6 +639,10 @@ function setRange(a, b){
 const YES = /^(はい|ok|okay|オーケー|そのまま|続き|つづき|スタート|お願いします|いいよ|うん)/;
 async function playAnswer(n){
   const it = cur(); render(true);
+  shadowing = n > 1;
+  try{ return await playAnswerInner(n, it); } finally { shadowing = false; }
+}
+async function playAnswerInner(n, it){
   for(let i=0; i<n; i++){
     setStatus(n>1 ? `🔊 ${i+1} / ${n} 回目` : "🔊 正解");
     const r = await speakEn(it.en);
@@ -655,6 +661,7 @@ async function playAnswer(n){
       }
     }
   }
+  shadowing = false;
   if(S.auto==="1"){ setStatus("🎤 次へ進みます…（「もう一回」「10回」なども可）"); return listenWindow(S.after*1000, "after"); }
   setStatus("🎤「次」で次の問題へ（「もう一回」「10回」「速さ0.8」も可）");
   return listenWindow(Infinity, "after");
@@ -718,7 +725,9 @@ async function loop(){
       pos = i; action = "question"; continue;
     }
     if(action==="question"){
-      const it = cur(); render(false); $("#verdict").innerHTML = "";
+      const it = cur();
+      if(lastQNo !== it.no){ lastQNo = it.no; if(S.rate !== 1.0){ S.rate = 1.0; saveSettings(); $("#sRate").value = S.rate; } }
+      render(false); $("#verdict").innerHTML = "";
       if(S.engine==="openai" && S.key){ getTTS(it.en).catch(()=>{}); const nx = order[pos+1]; if(nx) getTTS(nx.en).catch(()=>{}); }
       setStatus("🔊 問題");
       await speakJa(it.no + "番。" + it.ja);
@@ -774,7 +783,7 @@ $("#startBtn").onclick = ()=>{
   LS.set("eq_range", {a, b, o:$("#order").value});
   // スマホで音を出す許可をこのタップで取っておく
   try{ audio.src = silentWav(); audio.play().catch(()=>{}); }catch(e){}
-  running = true; paused = false; queued = null; pos = 0;
+  running = true; paused = false; queued = null; pos = 0; lastQNo = null;
   $("#startBtn").textContent = "■ 練習を終わる";
   keepAwake();
   (async ()=>{
