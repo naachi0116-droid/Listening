@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ループリスニング</title>
+<style>
+  :root{--bg:#0f1316;--card:#1a2127;--line:#2b353e;--tx:#eef2f5;--sub:#93a2af;--ac:#3fb6ff;--ok:#4fd18b;--mk:#ffd23f;--seg:rgba(63,182,255,.22)}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:16px;line-height:1.5}
+  header{display:flex;gap:6px;padding:10px 10px 0;position:sticky;top:0;background:var(--bg);z-index:5}
+  header button{flex:1;padding:11px 4px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--sub);font-size:16px;font-weight:600}
+  header button.on{background:var(--ac);color:#04121d;border-color:var(--ac)}
+  main{padding:10px 10px 40px;max-width:760px;margin:0 auto}
+  section{display:none}section.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+  input,select,textarea{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);background:#0a0d10;color:var(--tx);font-size:16px;font-family:inherit}
+  label{display:block;color:var(--sub);font-size:13px;margin:6px 0 3px}
+  .btn{display:inline-block;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#25303a;color:var(--tx);font-size:15px;font-weight:600;cursor:pointer;text-align:center}
+  .btn.pri{background:var(--ac);color:#04121d;border-color:var(--ac)}
+  .btn.on{background:var(--ok);color:#04121d;border-color:var(--ok)}
+  .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}
+  .small{font-size:13px;color:var(--sub)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chip{padding:5px 12px;border-radius:99px;border:1px solid var(--line);background:#25303a;font-size:14px}
+  .chip.on{background:var(--ac);color:#04121d;border-color:var(--ac)}
+  .item{display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line)}
+  .item:last-child{border-bottom:0}
+  .item .t{flex:1;min-width:0}.item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pill{display:inline-block;padding:1px 8px;border-radius:99px;background:#25303a;font-size:12px;color:var(--sub);margin-right:4px}
+  .ops button{padding:6px 9px;font-size:13px;border-radius:7px;border:1px solid var(--line);background:#25303a;color:var(--tx)}
+  #title{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  canvas{width:100%;display:block;border-radius:8px;background:#0a0d10;touch-action:none}
+  #wave{height:56px}#zoom{height:90px;margin-top:6px}
+  .time{display:flex;justify-content:space-between;font-size:14px;color:var(--sub);margin-top:4px}
+  #segInfo{font-size:14px;color:var(--mk);text-align:center;min-height:21px}
+  .grid{display:grid;gap:6px;margin-top:8px}
+  .g5{grid-template-columns:repeat(5,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .grid .btn{padding:14px 2px;font-size:17px}
+  #nowEn{font-size:20px;font-weight:600;min-height:30px;margin-top:6px}
+  #nowJa{font-size:15px;color:var(--sub);min-height:22px}
+  .scr{max-height:46vh;overflow:auto;margin-top:6px}
+  .sl{padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer}
+  .sl.cur{background:var(--seg);border-radius:8px}
+  .sl .tm{font-size:12px;color:var(--sub)}.sl .ja{font-size:14px;color:var(--sub)}
+  #msg{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#25303a;border:1px solid var(--line);padding:10px 16px;border-radius:10px;display:none;z-index:9;max-width:90vw}
+  .bar{height:6px;background:#25303a;border-radius:3px;overflow:hidden;margin-top:6px}.bar>div{height:100%;background:var(--ac);width:0}
+</style>
+</head>
+<body>
+<header>
+  <button data-tab="lib" class="on">ライブラリ</button>
+  <button data-tab="play">再生</button>
+  <button data-tab="set">設定</button>
+</header>
+<main>
+
+<!-- ===== ライブラリ ===== -->
+<section id="lib" class="on">
+  <div class="card">
+    <div class="row">
+      <input id="q" placeholder="🔍 タイトル・タグ・スクリプトで検索">
+      <label class="btn pri" style="flex:0 0 auto;margin:0">＋ 追加<input id="addFile" type="file" accept="audio/*,video/*,.m4a,.mp3,.mp4,.wav,.aac,.ogg,.webm" multiple style="display:none"></label>
+    </div>
+    <div class="chips" id="tags"></div>
+  </div>
+  <div class="card" id="list"></div>
+  <p class="small">一度「追加」したファイルはアプリの中に保存されるので、次からはここから選ぶだけです。名前やタグ（BBC、ニュース、商談など）は ✏️ で自由に変えられます。動画ファイルを入れた場合は音声だけを再生します。</p>
+</section>
+
+<!-- ===== 再生 ===== -->
+<section id="play">
+  <div class="card">
+    <div id="title">ライブラリからファイルを選んでください</div>
+    <canvas id="wave"></canvas>
+    <canvas id="zoom"></canvas>
+    <div class="time"><span id="tCur">0:00</span><span id="segInfo"></span><span id="tDur">0:00</span></div>
+    <div id="nowEn"></div><div id="nowJa"></div>
+    <div class="grid g5">
+      <button class="btn" id="bPrev">⏮</button>
+      <button class="btn" id="bBack">−5秒</button>
+      <button class="btn pri" id="bPlay">▶</button>
+      <button class="btn" id="bFwd">+5秒</button>
+      <button class="btn" id="bNext">⏭</button>
+    </div>
+    <div class="grid g4">
+      <button class="btn" id="bLoop">🔁 ループ</button>
+      <button class="btn" id="bMark">＋区切り</button>
+      <button class="btn" id="bUnmark">区切り削除</button>
+      <button class="btn" id="bRate">1.00x</button>
+    </div>
+    <div class="grid g4">
+      <button class="btn" id="bSlow">🐢 −0.1</button>
+      <button class="btn" id="bFast">🐇 +0.1</button>
+      <button class="btn" id="bJa">和訳 表示</button>
+      <button class="btn" id="bScr">📝 スクリプト</button>
+    </div>
+    <p class="small" style="margin-top:8px">聞きながら文の切れ目で「＋区切り」を押すと、そこで区切れます。⏮⏭で前後の区切りへ、🔁で今の区切りをくり返します。下の細かい波形をタップすると、その位置に移動します。車のハンドルやイヤホンの「前/次」ボタンでも区切りを移動できます。</p>
+  </div>
+  <div class="card" id="scrCard">
+    <div class="row"><b>スクリプト</b><span id="scrStat" class="small" style="text-align:right"></span></div>
+    <div class="bar" id="prog" style="display:none"><div></div></div>
+    <div class="scr" id="scr"></div>
+  </div>
+</section>
+
+<!-- ===== 設定 ===== -->
+<section id="set">
+  <div class="card">
+    <label>OpenAI APIキー（スクリプト作成・和訳に使用）</label>
+    <input id="sKey" type="password" placeholder="sk-...">
+    <p class="small">同じサイトの英作文アプリやながらリスニングに入れたキーがあれば自動で使います。費用はスクリプト作成が音声1分あたり約0.6セント（16分で約10セント）、和訳はほぼ無料です。</p>
+    <label>ループのあいだの間（秒）</label><input id="sGap" type="number" step="0.1" min="0">
+    <label>ループの回数（0＝止めるまで）</label><input id="sReps" type="number" step="1" min="0">
+  </div>
+  <div class="card">
+    <b>保存容量</b><p class="small" id="quota"></p>
+    <p class="small">ファイルはこのスマホのブラウザの中に保存されます。使わなくなったファイルはライブラリの 🗑 で消してください。</p>
+  </div>
+</section>
+</main>
+<div id="msg"></div>
+<audio id="au" preload="auto"></audio>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r=>setTimeout(r, ms));
+function toast(t, ms){ const m=$("#msg"); m.textContent=t; m.style.display="block"; clearTimeout(toast.t); toast.t=setTimeout(()=>m.style.display="none", ms||2400); }
+function esc(s){ return String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function fmt(t){ t = Math.max(0, t||0); const m = Math.floor(t/60), s = Math.floor(t%60); return m + ":" + String(s).padStart(2,"0"); }
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+let S = Object.assign({key:"", gap:0.5, reps:0, rate:1.0, showJa:true}, LS.get("ll_settings", {}));
+if(!S.key) S.key = LS.get("nl.key", "") || (LS.get("eq_settings", {}).key || "");
+const saveS = ()=>LS.set("ll_settings", S);
+
+/* ---------- タブ ---------- */
+function tab(name){
+  document.querySelectorAll("header button").forEach(b=>b.classList.toggle("on", b.dataset.tab===name));
+  document.querySelectorAll("section").forEach(s=>s.classList.toggle("on", s.id===name));
+  if(name==="play") requestAnimationFrame(()=>{ resizeCanvas(); draw(); });
+  if(name==="set") showQuota();
+}
+document.querySelectorAll("header button").forEach(b=>b.onclick=()=>tab(b.dataset.tab));
+
+/* ---------- 保存（IndexedDB） ---------- */
+const DB = {
+  db:null,
+  open(){ if(this.db) return Promise.resolve(this.db);
+    return new Promise((res, rej)=>{ const r = indexedDB.open("loop-listening", 1);
+      r.onupgradeneeded = ()=>{ const d = r.result; d.createObjectStore("blobs"); d.createObjectStore("meta", {keyPath:"id"}); };
+      r.onsuccess = ()=>{ this.db = r.result; res(this.db); }; r.onerror = ()=>rej(r.error); }); },
+  async req(store, mode, fn){ const db = await this.open(); return new Promise((res, rej)=>{ const t = db.transaction(store, mode); const q = fn(t.objectStore(store)); t.oncomplete = ()=>res(q && q.result); t.onerror = ()=>rej(t.error); }); },
+  get(store, k){ return this.req(store, "readonly", s=>s.get(k)); },
+  put(store, v, k){ return this.req(store, "readwrite", s=>k===undefined ? s.put(v) : s.put(v, k)); },
+  del(store, k){ return this.req(store, "readwrite", s=>s.delete(k)); },
+  all(store){ return this.req(store, "readonly", s=>s.getAll()); }
+};
+try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
+
+/* ---------- ライブラリ ---------- */
+let metas = [], tagFilter = "", editing = null;
+function cleanName(n){ return n.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s*\(\d+\)$/, "").trim(); }
+function guessTag(n){ if(/bbc|6.?minute|global.?news|learning.?english/i.test(n)) return "BBC"; if(/podcast/i.test(n)) return "ポッドキャスト"; return ""; }
+function mediaDuration(url){ return new Promise(res=>{ const a = new Audio(); a.preload = "metadata"; a.onloadedmetadata = ()=>res(a.duration||0); a.onerror = ()=>res(0); a.src = url; setTimeout(()=>res(0), 8000); }); }
+async function loadLib(){ metas = (await DB.all("meta")) || []; renderLib(); }
+function renderLib(){
+  const tags = [...new Set(metas.map(m=>m.tag).filter(Boolean))].sort();
+  $("#tags").innerHTML = ['<span class="chip'+(tagFilter===""?" on":"")+'" data-t="">すべて</span>'].concat(tags.map(t=>'<span class="chip'+(tagFilter===t?" on":"")+'" data-t="'+esc(t)+'">'+esc(t)+'</span>')).join("");
+  const q = $("#q").value.trim().toLowerCase();
+  const list = metas.filter(m=>(!tagFilter || m.tag===tagFilter) && (!q || (m.title+" "+(m.tag||"")+" "+m.name).toLowerCase().includes(q) || (m.script||[]).some(s=>(s.en||"").toLowerCase().includes(q))))
+                    .sort((a,b)=>(b.openedAt||b.addedAt)-(a.openedAt||a.addedAt));
+  if(!metas.length){ $("#list").innerHTML = '<p class="small">まだありません。「＋ 追加」から音声や動画のファイルを選んでください（何個でもまとめて選べます）。</p>'; return; }
+  $("#list").innerHTML = list.map(m=>{
+    if(editing===m.id) return `<div class="item"><div class="t"><label>名前</label><input id="eTitle" value="${esc(m.title)}"><label>タグ</label><input id="eTag" value="${esc(m.tag||"")}" placeholder="BBC、ニュース、商談 など" list="tagList"></div>
+      <div class="ops" style="display:flex;flex-direction:column;gap:4px"><button data-save="${m.id}">保存</button><button data-cancel="1">戻る</button></div></div>`;
+    const pct = m.duration ? Math.round((m.lastPos||0)/m.duration*100) : 0;
+    return `<div class="item"><div class="t" data-open="${m.id}" style="cursor:pointer"><b>${/^video/.test(m.type)?"🎬 ":"🎧 "}${esc(m.title)}</b>
+      <span class="pill">${fmt(m.duration)}</span>${m.tag?'<span class="pill">'+esc(m.tag)+'</span>':""}${m.script?'<span class="pill">📝 スクリプト</span>':""}${pct?'<span class="pill">'+pct+'%</span>':""}</div>
+      <div class="ops" style="display:flex;gap:4px"><button data-edit="${m.id}">✏️</button><button data-del="${m.id}">🗑</button></div></div>`;
+  }).join("") + '<datalist id="tagList">' + tags.map(t=>'<option value="'+esc(t)+'">').join("") + '<option value="BBC"><option value="ニュース"><option value="商談"><option value="ポッドキャスト"></datalist>';
+}
+$("#q").oninput = renderLib;
+$("#tags").onclick = e=>{ const c = e.target.closest(".chip"); if(!c) return; tagFilter = c.dataset.t; renderLib(); };
+$("#list").onclick = async e=>{
+  const b = e.target.closest("[data-open],[data-edit],[data-del],[data-save],[data-cancel]"); if(!b) return;
+  if(b.dataset.open) return openItem(b.dataset.open);
+  if(b.dataset.edit){ editing = b.dataset.edit; renderLib(); setTimeout(()=>$("#eTitle") && $("#eTitle").focus(), 50); return; }
+  if(b.dataset.cancel){ editing = null; renderLib(); return; }
+  if(b.dataset.save){ const m = metas.find(x=>x.id===b.dataset.save); m.title = $("#eTitle").value.trim() || m.title; m.tag = $("#eTag").value.trim(); await DB.put("meta", m); editing = null; renderLib(); toast("保存しました"); return; }
+  if(b.dataset.del){
+    if(!b.dataset.sure){ b.dataset.sure = "1"; b.textContent = "本当に?"; setTimeout(()=>{ delete b.dataset.sure; b.textContent = "🗑"; }, 3000); return; }
+    await DB.del("meta", b.dataset.del); await DB.del("blobs", b.dataset.del);
+    if(cur && cur.id===b.dataset.del){ au.pause(); au.removeAttribute("src"); cur = null; }
+    await loadLib(); toast("削除しました");
+  }
+};
+$("#addFile").onchange = async e=>{
+  const files = [...e.target.files]; e.target.value = "";
+  if(!files.length) return;
+  toast(files.length + "件を取り込んでいます…", 6000);
+  let last = null;
+  for(const f of files){
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    const url = URL.createObjectURL(f); const duration = await mediaDuration(url); URL.revokeObjectURL(url);
+    const m = {id, title:cleanName(f.name), tag:guessTag(f.name), name:f.name, type:f.type||"", size:f.size, duration, addedAt:Date.now(), lastPos:0, markers:[], script:null};
+    try{ await DB.put("blobs", f, id); await DB.put("meta", m); last = id; }
+    catch(err){ toast("保存できませんでした（容量不足かもしれません）"); console.warn(err); }
+  }
+  await loadLib();
+  if(last){ editing = last; renderLib(); toast("取り込みました。わかりやすい名前とタグを付けておくと探しやすくなります", 4000); }
+};
+
+/* ---------- 再生 ---------- */
+const au = $("#au");
+let cur = null, url = null, loopOn = false, loopCount = 0, peaks = null, savingT = null;
+function segs(){ const d = cur ? (cur.duration || au.duration || 0) : 0; const m = (cur && cur.markers || []).filter(x=>x>0.05 && x<d-0.05); return [0, ...m, d]; }
+function segIndex(t){ const b = segs(); for(let i=b.length-2;i>=0;i--) if(t >= b[i]-0.02) return i; return 0; }
+function segRange(i){ const b = segs(); i = Math.max(0, Math.min(b.length-2, i)); return [b[i], b[i+1], i]; }
+async function openItem(id){
+  const m = metas.find(x=>x.id===id) || await DB.get("meta", id); if(!m) return;
+  const blob = await DB.get("blobs", id); if(!blob){ toast("ファイルが見つかりません"); return; }
+  if(cur) saveMeta();
+  cur = m; m.openedAt = Date.now(); m.markers = (m.markers||[]).sort((a,b)=>a-b);
+  if(url) URL.revokeObjectURL(url); url = URL.createObjectURL(blob);
+  au.src = url; au.playbackRate = S.rate; au.preservesPitch = true;
+  au.onloadedmetadata = ()=>{ if(!cur.duration || Math.abs(cur.duration-au.duration)>1) cur.duration = au.duration; au.currentTime = Math.min(cur.lastPos||0, Math.max(0, au.duration-1)); draw(); };
+  $("#title").textContent = (/^video/.test(m.type)?"🎬 ":"🎧 ") + m.title;
+  loopOn = false; $("#bLoop").classList.remove("on"); peaks = m.peaks || null;
+  renderScript(); tab("play"); setMedia(); DB.put("meta", m);
+  if(!peaks) buildPeaks(blob).catch(()=>{});
+}
+function saveMeta(){ if(!cur) return; cur.lastPos = au.currentTime||0; DB.put("meta", cur).catch(()=>{}); }
+function setRate(r){ S.rate = Math.min(2, Math.max(0.5, Math.round(r*100)/100)); au.playbackRate = S.rate; au.preservesPitch = true; $("#bRate").textContent = S.rate.toFixed(2)+"x"; saveS(); }
+$("#bRate").onclick = ()=>setRate(1); $("#bSlow").onclick = ()=>setRate(S.rate-0.1); $("#bFast").onclick = ()=>setRate(S.rate+0.1);
+function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); } else au.pause(); }
+$("#bPlay").onclick = togglePlay;
+au.onplay = ()=>{ $("#bPlay").textContent = "⏸"; tick(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "playing"; };
+au.onpause = ()=>{ $("#bPlay").textContent = "▶"; saveMeta(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "paused"; };
+function seek(t){ if(!cur) return; au.currentTime = Math.max(0, Math.min((cur.duration||au.duration||0)-0.05, t)); loopCount = 0; draw(); }
+$("#bBack").onclick = ()=>seek(au.currentTime-5); $("#bFwd").onclick = ()=>seek(au.currentTime+5);
+function gotoSeg(d){ if(!cur) return; const i = segIndex(au.currentTime); const [s] = segRange(i); let j = i + d;
+  if(d<0 && au.currentTime - s > 1.5) j = i;   // 区切りの途中なら、まずその頭へ
+  const [s2] = segRange(j); seek(s2); if(au.paused) au.play().catch(()=>{}); }
+$("#bPrev").onclick = ()=>gotoSeg(-1); $("#bNext").onclick = ()=>gotoSeg(+1);
+$("#bLoop").onclick = ()=>{ loopOn = !loopOn; loopCount = 0; $("#bLoop").classList.toggle("on", loopOn); toast(loopOn ? "今の区切りをくり返します" : "ループを止めました"); draw(); };
+$("#bMark").onclick = ()=>{
+  if(!cur) return; const t = Math.max(0, au.currentTime - 0.15);
+  if(cur.markers.some(x=>Math.abs(x-t)<0.4)){ toast("近くに区切りがあります"); return; }
+  cur.markers.push(t); cur.markers.sort((a,b)=>a-b); saveMeta(); draw(); toast("区切り " + fmt(t));
+};
+$("#bUnmark").onclick = ()=>{
+  if(!cur || !cur.markers.length) return; const t = au.currentTime;
+  let k = -1, best = 1e9; cur.markers.forEach((x,i)=>{ const d = Math.abs(x-t); if(d<best){ best = d; k = i; } });
+  if(k<0) return; const x = cur.markers.splice(k,1)[0]; saveMeta(); draw(); toast("区切り " + fmt(x) + " を消しました");
+};
+$("#bJa").onclick = ()=>{ S.showJa = !S.showJa; saveS(); $("#bJa").textContent = S.showJa ? "和訳 表示" : "和訳 非表示"; renderScript(); update(); };
+$("#bScr").onclick = ()=>makeScript();
+
+/* 再生位置の監視（ループ・表示） */
+let ticking = false, waiting = false;
+function tick(){ if(ticking) return; ticking = true; const f = ()=>{ if(au.paused){ ticking = false; update(); return; } update(); requestAnimationFrame(f); }; requestAnimationFrame(f); }
+let lastScrIdx = -1;
+async function update(){
+  if(!cur) return;
+  const t = au.currentTime, d = cur.duration || au.duration || 0;
+  $("#tCur").textContent = fmt(t); $("#tDur").textContent = fmt(d);
+  const i = segIndex(t), [s, e] = segRange(i), n = segs().length-1;
+  $("#segInfo").textContent = `区切り ${i+1}/${n}` + (loopOn ? `　🔁${S.reps ? (loopCount+1)+"/"+S.reps : (loopCount+1)+"回目"}` : "");
+  if(loopOn && !waiting && !au.paused && t >= e - 0.03 && e - s > 0.3){
+    if(S.reps && loopCount+1 >= S.reps){ loopCount = 0; loopOn = false; $("#bLoop").classList.remove("on"); }
+    else {
+      waiting = true; au.pause(); loopCount++;
+      await sleep(Math.max(0, S.gap)*1000); au.currentTime = s; waiting = false; au.play().catch(()=>{});
+    }
+  }
+  // スクリプト表示
+  const sc = cur.script;
+  if(sc && sc.length){
+    let k = -1; for(let j=0;j<sc.length;j++){ if(sc[j].s <= t+0.05) k = j; else break; }
+    if(k !== lastScrIdx){
+      lastScrIdx = k;
+      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; $("#nowJa").textContent = (k>=0 && S.showJa) ? (sc[k].ja||"") : "";
+      document.querySelectorAll(".sl.cur").forEach(x=>x.classList.remove("cur"));
+      const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); const box = $("#scr"); if(el.offsetTop < box.scrollTop || el.offsetTop > box.scrollTop + box.clientHeight - 60) box.scrollTop = el.offsetTop - 40; }
+    }
+  } else { $("#nowEn").textContent = ""; $("#nowJa").textContent = ""; }
+  draw();
+  clearTimeout(savingT); savingT = setTimeout(saveMeta, 3000);
+}
+au.ontimeupdate = ()=>{ if(au.paused) update(); };
+au.onended = ()=>{ if(loopOn){ const [s] = segRange(segIndex(au.duration-0.1)); loopCount++; setTimeout(()=>{ au.currentTime = s; au.play().catch(()=>{}); }, Math.max(0,S.gap)*1000); } };
+
+/* ---------- 波形 ---------- */
+const cw = $("#wave"), cz = $("#zoom");
+function resizeCanvas(){ for(const c of [cw, cz]){ const r = c.getBoundingClientRect(); c.width = Math.max(300, r.width*devicePixelRatio); c.height = r.height*devicePixelRatio; } }
+window.addEventListener("resize", ()=>{ resizeCanvas(); draw(); });
+function drawWave(c, t0, t1, opts){
+  const g = c.getContext("2d"), W = c.width, H = c.height, d = cur ? (cur.duration||au.duration||0) : 0;
+  g.clearRect(0,0,W,H); if(!cur || !d) return;
+  const X = t=>(t-t0)/(t1-t0)*W;
+  // 今の区切り
+  const [s, e] = segRange(segIndex(au.currentTime));
+  g.fillStyle = loopOn ? "rgba(79,209,139,.22)" : "rgba(63,182,255,.18)"; g.fillRect(X(s), 0, X(e)-X(s), H);
+  // 波形
+  if(peaks){
+    const n = peaks.length; g.fillStyle = "#6f8396";
+    for(let x=0; x<W; x+=Math.max(1, Math.round(devicePixelRatio))){
+      const t = t0 + (x/W)*(t1-t0); const k = Math.floor(t/d*n); if(k<0||k>=n) continue;
+      const v = peaks[k]*H*0.46; g.fillRect(x, H/2-v, Math.max(1,devicePixelRatio), v*2+1);
+    }
+  } else { g.fillStyle = "#33414d"; g.fillRect(0, H/2-1, W, 2); }
+  // 区切り
+  g.fillStyle = "#ffd23f";
+  for(const m of (cur.markers||[])){ if(m<t0||m>t1) continue; const x = X(m); g.fillRect(x-devicePixelRatio, 0, 2*devicePixelRatio, H); if(opts.big){ g.beginPath(); g.moveTo(x-7*devicePixelRatio,0); g.lineTo(x+7*devicePixelRatio,0); g.lineTo(x,9*devicePixelRatio); g.fill(); } }
+  // 再生位置
+  g.fillStyle = "#fff"; const px = X(au.currentTime); g.fillRect(px-devicePixelRatio, 0, 2*devicePixelRatio, H);
+  if(opts.big){ g.fillStyle = "#93a2af"; g.font = (11*devicePixelRatio)+"px sans-serif"; g.fillText(fmt(t0), 4, H-4); const lab = fmt(t1); g.fillText(lab, W - g.measureText(lab).width - 4, H-4); }
+}
+const ZW = 16; // 拡大表示の幅（秒）
+function draw(){ if(!cur) return; const d = cur.duration||au.duration||0; drawWave(cw, 0, d, {});
+  const c = au.currentTime, t0 = Math.max(0, Math.min(d-ZW, c - ZW*0.35)); drawWave(cz, t0, Math.min(d, t0+ZW), {big:true}); }
+function canvasSeek(c, ev){
+  if(!cur) return; const r = c.getBoundingClientRect(), d = cur.duration||au.duration||0;
+  const f = Math.max(0, Math.min(1, (ev.clientX - r.left)/r.width));
+  if(c===cw) seek(f*d); else { const t0 = Math.max(0, Math.min(d-ZW, au.currentTime - ZW*0.35)); seek(t0 + f*Math.min(ZW, d)); }
+}
+cw.addEventListener("pointerdown", e=>canvasSeek(cw, e)); cz.addEventListener("pointerdown", e=>canvasSeek(cz, e));
+
+/* ---------- 音声の取り出し（動画もOK） ---------- */
+async function decode16k(blob){
+  const buf = await blob.arrayBuffer();
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx({sampleRate:16000});
+  try{
+    const ab = await ctx.decodeAudioData(buf);
+    const n = ab.length, out = new Float32Array(n);
+    for(let c=0;c<ab.numberOfChannels;c++){ const ch = ab.getChannelData(c); for(let i=0;i<n;i++) out[i] += ch[i]/ab.numberOfChannels; }
+    return {data:out, rate:ab.sampleRate};
+  } finally { try{ ctx.close(); }catch(e){} }
+}
+function peaksFrom(pcm, bins){ const n = pcm.length, step = Math.max(1, Math.floor(n/bins)), p = new Array(bins).fill(0); let mx = 0.0001;
+  for(let b=0;b<bins;b++){ let m = 0; const st = b*step, en = Math.min(n, st+step); for(let i=st;i<en;i+=4){ const v = Math.abs(pcm[i]); if(v>m) m = v; } p[b] = m; if(m>mx) mx = m; }
+  return p.map(v=>Math.round(v/mx*100)/100); }
+async function buildPeaks(blob){
+  if(cur && cur.duration > 90*60) return;
+  const {data} = await decode16k(blob); peaks = peaksFrom(data, 4000); if(cur){ cur.peaks = peaks; saveMeta(); } draw();
+}
+function wavChunk(pcm, rate, st, en){
+  const n = en-st, b = new ArrayBuffer(44+n*2), v = new DataView(b), w = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+  w(0,"RIFF"); v.setUint32(4,36+n*2,true); w(8,"WAVE"); w(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); w(36,"data"); v.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++){ const x = Math.max(-1, Math.min(1, pcm[st+i])); v.setInt16(44+i*2, x<0 ? x*0x8000 : x*0x7FFF, true); }
+  return new Blob([b], {type:"audio/wav"});
+}
+
+/* ---------- AIでスクリプト ---------- */
+function setProg(p, txt){ $("#prog").style.display = p===null ? "none" : "block"; $("#prog>div").style.width = (p||0)+"%"; if(txt!==undefined) $("#scrStat").textContent = txt; }
+async function transcribeChunk(blob, prompt){
+  for(const model of ["whisper-1", "gpt-transcribe"]){
+    const fd = new FormData(); fd.append("file", blob, "a.wav"); fd.append("model", model);
+    fd.append("response_format", "verbose_json"); fd.append("timestamp_granularities[]", "segment"); fd.append("language", "en");
+    if(prompt) fd.append("prompt", prompt.slice(-400));
+    const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer "+S.key}, body:fd});
+    if(r.ok){ const j = await r.json(); if(j.segments) return j.segments; }
+    else if(r.status===401) throw new Error("APIキーが使えません");
+  }
+  throw new Error("文字起こしに失敗しました");
+}
+function splitSentences(segsIn){
+  // 句点で終わらないものは次とつなぎ、長すぎるものはそのまま
+  const out = []; let buf = null;
+  for(const s of segsIn){
+    const txt = (s.text||"").trim(); if(!txt) continue;
+    if(!buf) buf = {s:s.start, e:s.end, en:txt}; else { buf.e = s.end; buf.en += " " + txt; }
+    if(/[.?!…]["')\]]?$/.test(txt) || buf.e - buf.s > 14){ out.push(buf); buf = null; }
+  }
+  if(buf) out.push(buf);
+  return out.map(x=>({s:Math.round(x.s*100)/100, e:Math.round(x.e*100)/100, en:x.en}));
+}
+async function translate(sc){
+  for(let i=0;i<sc.length;i+=40){
+    const part = sc.slice(i, i+40);
+    setProg(Math.round(90 + i/sc.length*10), "和訳しています…");
+    try{
+      const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
+        body:JSON.stringify({model:"gpt-4o-mini", temperature:0.2, response_format:{type:"json_object"},
+          messages:[{role:"system", content:'Translate each English line into natural Japanese for a learner. Return JSON {"ja":[...]} with exactly the same number of items, in order.'},
+                    {role:"user", content:JSON.stringify(part.map(x=>x.en))}]})});
+      if(!r.ok) continue;
+      const j = await r.json(); const a = JSON.parse(j.choices[0].message.content).ja || [];
+      part.forEach((x,k)=>{ if(a[k]) x.ja = a[k]; });
+    }catch(e){ console.warn(e); }
+  }
+}
+let busy = false;
+async function makeScript(){
+  if(!cur){ toast("先にファイルを選んでください"); return; }
+  if(busy) return;
+  if(cur.script && cur.script.length){
+    if(!confirmTwice($("#bScr"), "作り直す?")) return;
+  }
+  if(!S.key){ toast("設定でOpenAI APIキーを入れてください"); tab("set"); return; }
+  busy = true; const me = cur;
+  try{
+    setProg(2, "音声を取り出しています…");
+    const blob = await DB.get("blobs", me.id);
+    const {data, rate} = await decode16k(blob);
+    if(!me.peaks){ peaks = peaksFrom(data, 4000); me.peaks = peaks; }
+    const CH = rate*600, all = []; let prompt = "";
+    for(let st=0; st<data.length; st+=CH){
+      const en = Math.min(data.length, st+CH);
+      setProg(5 + Math.round(st/data.length*85), `文字にしています… ${fmt(st/rate)} / ${fmt(data.length/rate)}`);
+      const sg = await transcribeChunk(wavChunk(data, rate, st, en), prompt);
+      for(const s of sg) all.push({start:s.start + st/rate, end:s.end + st/rate, text:s.text});
+      prompt = sg.map(s=>s.text).join(" ");
+    }
+    const sc = splitSentences(all);
+    await translate(sc);
+    me.script = sc;
+    if(!me.markers.length) me.markers = sc.map(x=>x.s).filter(x=>x>0.3);
+    await DB.put("meta", me);
+    if(cur===me){ renderScript(); draw(); }
+    setProg(null, sc.length + "文");
+    toast("スクリプトができました。文ごとに区切りも付けました", 3500);
+  }catch(e){ console.warn(e); setProg(null, ""); toast("作れませんでした：" + (e.message||e), 4000); }
+  finally{ busy = false; loadLib(); }
+}
+function confirmTwice(btn, label){ if(btn.dataset.sure){ delete btn.dataset.sure; btn.textContent = "📝 スクリプト"; return true; } btn.dataset.sure = "1"; const o = btn.textContent; btn.textContent = label; setTimeout(()=>{ if(btn.dataset.sure){ delete btn.dataset.sure; btn.textContent = o; } }, 3000); return false; }
+function renderScript(){
+  lastScrIdx = -1;
+  const sc = cur && cur.script;
+  if(!sc || !sc.length){ $("#scr").innerHTML = '<p class="small">スクリプトはまだありません。「📝 スクリプト」を押すと、AIが音声を聞き取って英文と和訳を作り、文ごとに区切りも付けます（16分で1〜2分ほど）。</p>'; $("#scrStat").textContent = ""; return; }
+  $("#scrStat").textContent = sc.length + "文";
+  $("#scr").innerHTML = sc.map((x,i)=>`<div class="sl" data-i="${i}"><div class="tm">${fmt(x.s)}</div><div>${esc(x.en)}</div>${S.showJa && x.ja ? '<div class="ja">'+esc(x.ja)+'</div>' : ""}</div>`).join("");
+}
+$("#scr").onclick = e=>{ const r = e.target.closest(".sl"); if(!r || !cur) return; const x = cur.script[+r.dataset.i]; seek(x.s + 0.01); au.play().catch(()=>{}); };
+
+/* ---------- 車・イヤホンのボタン ---------- */
+function setMedia(){
+  if(!("mediaSession" in navigator) || !cur) return;
+  try{
+    navigator.mediaSession.metadata = new MediaMetadata({title:cur.title, artist:"ループリスニング", album:cur.tag||""});
+    const h = (a, f)=>{ try{ navigator.mediaSession.setActionHandler(a, f); }catch(e){} };
+    h("play", ()=>au.play()); h("pause", ()=>au.pause());
+    h("previoustrack", ()=>gotoSeg(-1)); h("nexttrack", ()=>gotoSeg(+1));
+    h("seekbackward", ()=>seek(au.currentTime-5)); h("seekforward", ()=>seek(au.currentTime+5));
+  }catch(e){}
+}
+
+/* ---------- 設定 ---------- */
+function loadSetUI(){ $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.showJa ? "和訳 表示" : "和訳 非表示"; }
+["#sKey","#sGap","#sReps"].forEach(id=>$(id).onchange = ()=>{ S.key = $("#sKey").value.trim(); S.gap = Math.max(0, +$("#sGap").value||0); S.reps = Math.max(0, Math.round(+$("#sReps").value||0)); saveS(); toast("保存しました"); });
+async function showQuota(){ try{ const e = await navigator.storage.estimate(); $("#quota").textContent = `使用中 ${Math.round(e.usage/1e6)}MB ／ 使える目安 ${Math.round(e.quota/1e6)}MB`; }catch(e){ $("#quota").textContent = "不明"; } }
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") saveMeta(); });
+
+loadSetUI(); loadLib(); resizeCanvas();
+</script>
+</body>
+</html>
