@@ -66,7 +66,7 @@
   </div>
 
   <div class="card">
-    <div><span id="no">—</span><span class="pill" id="rateP">1.0x</span><span class="pill" id="posP"></span></div>
+    <div><span id="no">—</span><span class="pill" id="rateP">1.0x</span><span class="pill" id="posP"></span><span class="pill" id="micP"></span></div>
     <div id="ja">スタートを押してください</div>
     <div id="en" class="hide"></div>
     <div id="status"></div>
@@ -475,7 +475,7 @@ Return JSON only: {"verdict":"correct|close|wrong","cleaned":"the learner's inte
   }catch(e){ console.warn(e); toast("判定できませんでした"); return null; }
 }
 function showVerdict(g, said){
-  const lab = {correct:'<span class="ok">✅ 正解</span>', close:'<span class="cl">🔶 おしい</span>', wrong:'<span class="ng">❌ ちがう</span>'}[g.verdict];
+  const lab = {correct:'<span class="ok">✅ 正解</span>', close:'<span class="cl">🔶 不正解（おしい）</span>', wrong:'<span class="ng">❌ 不正解</span>'}[g.verdict];
   $("#verdict").innerHTML = lab + (g.point ? "　" + esc(g.point) : "") + '<div class="small">あなた: ' + esc(g.cleaned || said) + "</div>";
 }
 
@@ -488,8 +488,12 @@ function kanjiNum(s){
   return KN[s] || 0;
 }
 const KANA = {"いっかい":1,"にかい":2,"さんかい":3,"よんかい":4,"ごかい":5,"ろっかい":6,"ななかい":7,"はちかい":8,"はっかい":8,"きゅうかい":9,"じゅっかい":10,"じっかい":10};
+const EN_NUM = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20,once:1,twice:2};
 function parseCount(t){
+  t = t.replace(/誤解|ゴカイ|ご回|５回/g, "5回").replace(/かい|カイ/g, "回");
   let m = t.match(/(\d+)回/); if(m) return +m[1];
+  m = t.match(/(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty)times/); if(m) return /\d/.test(m[1]) ? +m[1] : EN_NUM[m[1]];
+  if(/(^|read)(it)?(once|twice)/.test(t)) return EN_NUM[t.match(/once|twice/)[0]];
   m = t.match(/([一二三四五六七八九十]+)回/); if(m) return kanjiNum(m[1]);
   for(const k in KANA) if(t.includes(k)) return KANA[k];
   return 0;
@@ -498,6 +502,7 @@ function parseCommand(raw){
   const t = raw.replace(/[\s、。！？!?,]/g, "").replace(/\.$/, "").replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).toLowerCase();
   if(!t) return null;
   if(/ストップ|止めて|とめて|停止|待って|まって/.test(t)) return {type:"pause"};
+  { const n = parseCount(t); if(n>0 && n<=30 && (t.length <= 20 || /^(please)?(read|say)/.test(t))) return {type:"repeat", n}; }
   if(t.length > 16) return null;  // 長い発話は英語の答えとみなす
   if(/^(next|nextplease|skip)$/.test(t)) return {type:"next"};
   if(/^(again|repeat|onemoretime)$/.test(t)) return {type:"repeat", n:1};
@@ -625,9 +630,10 @@ async function loop(){
           const g = await judgeAnswer(it, w.text);
           if(!running) break;
           if(queued){ const c = queued; queued = null; action = applyCmd(c, "answer"); continue; }
+          if(!g){ await speakJa("判定できませんでした。"); if(!running) break; }
           if(g){
             render(true); showVerdict(g, w.text);
-            const say = g.verdict==="correct" ? "正解！" : (g.verdict==="close" ? "おしい。" : "ちがいます。") + (g.point || "");
+            const say = g.verdict==="correct" ? "正解です。" : (g.verdict==="close" ? "不正解。おしいです。" : "不正解です。") + (g.point ? "ポイントは、" + g.point : "");
             await speakJa(say);
             if(!running) break;
             if(queued){ const c = queued; queued = null; action = applyCmd(c, "answer"); continue; }
@@ -671,9 +677,9 @@ $("#startBtn").onclick = ()=>{
   keepAwake();
   (async ()=>{
     if(S.mic==="ai" && S.key){
-      try{ await aiMic.start(); }
-      catch(e){ console.warn(e); toast("マイクが使えないので内蔵の聞き取りにします"); }
-    }
+      try{ await aiMic.start(); $("#micP").textContent = "🎙 AI聞き取り"; }
+      catch(e){ console.warn(e); toast("マイクが使えないので内蔵の聞き取りにします"); $("#micP").textContent = "🎙 内蔵（AI不可）"; }
+    } else $("#micP").textContent = S.key ? "🎙 内蔵" : "🎙 内蔵（キーなし）";
     loop();
   })();
 };
