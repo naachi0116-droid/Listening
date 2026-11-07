@@ -92,6 +92,7 @@
     <table class="cmd">
       <tr><td>「次」「スキップ」</td><td>次の問題へ</td></tr>
       <tr><td>「前」「戻って」</td><td>前の問題へ</td></tr>
+      <tr><td>「1番から20番」</td><td>出題する範囲を決める（スタート直後に聞かれます。いつ言っても可）</td></tr>
       <tr><td>「30番」</td><td>その番号の問題へ移動</td></tr>
       <tr><td>「答え」「わからない」</td><td>すぐ答えを読む</td></tr>
       <tr><td>「もう一回」</td><td>答えをもう一度読む</td></tr>
@@ -366,6 +367,7 @@ function listenWindow(ms, kind){
 }
 function onHeard(text){
   if(!curWin) return;
+  if(curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
   const cmd = parseCommand(text);
   if(cmd) curWin.finish({type:"cmd", cmd});
   else if(curWin.kind==="think") curWin.finish({type:"speech", text});
@@ -445,6 +447,7 @@ const aiMic = {
     if(!text){ if(this.ans) this.armPend(); return; }
     $("#heard").textContent = "🎤 " + text;
     if(speakingJa && normJ(text).length >= 2 && normJ(speakingJa).includes(normJ(text))) return;  // 自分の問題の読み上げを拾ったもの
+    if(curWin && curWin.kind==="range" && YES.test(normJ(text))){ curWin.finish({type:"cmd", cmd:{type:"resume"}}); return; }
     const cmd = parseCommand(text);
     if(cmd){ clearTimeout(this.pend); this.pend = null; this.ans = ""; sendCmd(cmd); return; }
     if(curWin && curWin.kind==="think"){
@@ -487,6 +490,11 @@ function kanjiNum(s){
   if(m) return (m[1]?KN[m[1]]:1)*10 + (m[2]?KN[m[2]]:0);
   return KN[s] || 0;
 }
+function toNum(s){
+  if(/\d/.test(s)) return +s;
+  if(s.includes("百")){ const [a,b] = s.split("百"); return (a ? KN[a] : 1)*100 + (b ? kanjiNum(b) : 0); }
+  return kanjiNum(s);
+}
 const KANA = {"いっかい":1,"にかい":2,"さんかい":3,"よんかい":4,"ごかい":5,"ろっかい":6,"ななかい":7,"はちかい":8,"はっかい":8,"きゅうかい":9,"じゅっかい":10,"じっかい":10};
 const EN_NUM = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20,once:1,twice:2};
 function parseCount(t){
@@ -507,6 +515,10 @@ function parseCommand(raw){
   if(/^(next|nextplease|skip)$/.test(t)) return {type:"next"};
   if(/^(again|repeat|onemoretime)$/.test(t)) return {type:"repeat", n:1};
   if(/^(wakaranai|idon'?tknow|idunno|answer)$/.test(t)) return {type:"answer"};
+  { const r = t.match(/(\d+|[一二三四五六七八九十百]+)番?から(\d+|[一二三四五六七八九十百]+)番?/);
+    if(r){ const a = toNum(r[1]), b = toNum(r[2]); if(a>0 && b>0) return {type:"range", a, b}; }
+    const r2 = t.match(/(\d+|[一二三四五六七八九十百]+)番から/);
+    if(r2){ const a = toNum(r2[1]); if(a>0) return {type:"range", a, b:9999}; } }
   { const m = t.match(/(\d+|[一二三四五六七八九十百]+)番/);
     if(m){ let no = /\d/.test(m[1]) ? +m[1] : (m[1].includes("百") ? (m[1].split("百")[0] ? KN[m[1].split("百")[0]] : 1)*100 + (kanjiNum(m[1].split("百")[1]) || 0) : kanjiNum(m[1]));
       if(no > 0) return {type:"jump", no}; } }
@@ -563,9 +575,26 @@ function applyCmd(c, phase){
     case "resume": return phase==="question" ? "question" : {rep:1};
     case "stop": running = false; return "stop";
     case "jump": jumpNo = c.no; return "jump";
+    case "range": return setRange(c.a, c.b) ? "question" : (phase==="range" ? "askrange" : "question");
   }
   return "next";
 }
+function buildOrder(a, b){
+  const lo = Math.min(a,b), hi = Math.max(a,b);
+  const o = items.filter(x=>x.no>=lo && x.no<=hi);
+  if($("#order").value==="rnd") for(let i=o.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [o[i],o[j]]=[o[j],o[i]]; }
+  return o;
+}
+function setRange(a, b){
+  const o = buildOrder(a, b);
+  if(!o.length){ toast("その範囲に例文がありません"); return false; }
+  order = o; pos = 0;
+  $("#from").value = Math.min(a,b); $("#to").value = Math.max(a,b) >= 9999 ? Math.max(...items.map(x=>x.no)) : Math.max(a,b);
+  LS.set("eq_range", {a:+$("#from").value, b:+$("#to").value, o:$("#order").value});
+  toast(`${$("#from").value}番〜${$("#to").value}番（${o.length}問）`);
+  return true;
+}
+const YES = /^(はい|ok|okay|オーケー|そのまま|続き|つづき|スタート|お願いします|いいよ|うん)/;
 async function playAnswer(n){
   const it = cur(); render(true);
   for(let i=0; i<n; i++){
@@ -585,7 +614,7 @@ async function playAnswer(n){
   return listenWindow(Infinity, "after");
 }
 async function loop(){
-  let action = "question";
+  let action = aiMic.active || rec ? "askrange" : "question";
   while(running){
     if(action==="stop") break;
     if(action==="pause"){
@@ -606,6 +635,18 @@ async function loop(){
       action = "question"; continue;
     }
     if(action==="prev"){ pos = Math.max(0, pos-1); action = "question"; continue; }
+    if(action==="askrange"){
+      $("#ja").textContent = "何番から何番までにしますか？";
+      setStatus(`🎤 例：「1番から20番」／そのままなら「はい」（今は${$("#from").value}〜${$("#to").value}番）`);
+      await speakJa("何番から何番までにしますか。");
+      if(!running) break;
+      let w;
+      if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
+      else w = await listenWindow(Infinity, "range");
+      if(!running || (w.cmd && w.cmd.type==="stop")) break;
+      action = (w.cmd && w.cmd.type==="range") ? applyCmd(w.cmd, "range") : "question";
+      continue;
+    }
     if(action==="jump"){
       let i = order.findIndex(x=>x.no===jumpNo);
       if(i < 0){
