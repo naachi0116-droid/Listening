@@ -395,10 +395,11 @@ async function update(){
     if(k >= 0 && t > sc[k].e + 0.6) k = -1;   // 文と文のすき間（音楽・広告の切れ目など）では何も出さない
     if(k !== lastScrIdx){
       lastScrIdx = k;
-      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; if(k !== curK) carText(k); curK = k; showNowJa();
+      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; curK = k; showNowJa();
       document.querySelectorAll(".sl.cur").forEach(x=>x.classList.remove("cur"));
       const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); followScript(el); }
     }
+    if(k >= 0) carText(k);   // 車の画面：長い文は進み具合に合わせて送る
   } else { $("#nowEn").textContent = ""; $("#nowJa").textContent = ""; }
   draw();
   clearTimeout(savingT); savingT = setTimeout(saveMeta, 3000);
@@ -554,7 +555,7 @@ async function makeScript(){
   if(!cur){ toast("先にファイルを選んでください"); return; }
   if(busy) return;
   if(cur.script && cur.script.length){
-    if(!confirmTwice($("#bScr"), "作り直す?")) return;
+    if(!confirmTwice($("#bScr"), "作り直す?（区切りも作り直します）")) return;
   }
   if(!S.key){ toast("設定でOpenAI APIキーを入れてください"); tab("set"); return; }
   busy = true; const me = cur;
@@ -597,7 +598,8 @@ async function makeScript(){
     const sc = splitSentences(all);
     await translate(sc);
     me.script = sc;
-    if(!me.markers.length){ me.markers = sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me) splitAtSilences(me); }
+    // スクリプトを作ったら、区切りも文の頭に合わせて作り直す（前の区切りがずれていても直る）
+    me.markers = sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me){ splitAtSilences(me); loopR = null; }
     await DB.put("meta", me);
     if(cur===me){ renderScript(); draw(); }
     setProg(null, sc.length + "文");
@@ -900,10 +902,46 @@ function setMedia(){
 }
 
 // 車の画面（メーターやオーディオ画面）に今の英文と和訳を出す：曲名＝英文、アーティスト＝和訳として送る
+// 長い文は車の画面で切れるので、読み上げの進み具合に合わせて少しずつ送る（英語50字・日本語24字ずつ）
+function chunkText(s, n, words){
+  s = (s||"").trim(); if(s.length <= n) return [s];
+  const out = []; let cur2 = "";
+  const parts = words ? s.split(/(\s+)/) : [...s];
+  for(const p of parts){ if((cur2 + p).length > n && cur2.trim()){ out.push(cur2.trim()); cur2 = p.trimStart(); } else cur2 += p; }
+  if(cur2.trim()) out.push(cur2.trim());
+  return out;
+}
+let carKey = "", artK = -2, artURL = "";
+// 車の画面の上の空き（ジャケット画像の場所）に、今の文の全文を画像にして出す（試し）
+function textArt(en, ja){
+  const W = 512, c = document.createElement("canvas"); c.width = W; c.height = W; const g = c.getContext("2d");
+  g.fillStyle = "#111827"; g.fillRect(0, 0, W, W);
+  const wrap = (txt, font, maxW, words)=>{ g.font = font; const parts = words ? txt.split(/\s+/) : [...txt]; const lines = []; let line = "";
+    for(const p of parts){ const t = line ? line + (words ? " " : "") + p : p; if(g.measureText(t).width > maxW && line){ lines.push(line); line = p; } else line = t; }
+    if(line) lines.push(line); return lines; };
+  let fe = 40, fj = 28, le, lj;
+  for(;;){ le = wrap(en, `bold ${fe}px sans-serif`, W-48, true); lj = ja ? wrap(ja, `${fj}px sans-serif`, W-48, false) : [];
+    if(le.length*fe*1.25 + lj.length*fj*1.3 + 30 <= W-40 || fe <= 18) break; fe -= 2; fj = Math.max(16, fj-1); }
+  let y = (W - (le.length*fe*1.25 + (lj.length ? 24 + lj.length*fj*1.3 : 0)))/2 + fe;
+  g.fillStyle = "#ffffff"; g.font = `bold ${fe}px sans-serif`; for(const l of le){ g.fillText(l, 24, y); y += fe*1.25; }
+  if(lj.length){ y += 24 - fe*0.25 + fj*0.2; g.fillStyle = "#facc15"; g.font = `${fj}px sans-serif`; for(const l of lj){ g.fillText(l, 24, y); y += fj*1.3; } }
+  return c.toDataURL("image/png");
+}
 function carText(k){
   if(!("mediaSession" in navigator) || !cur || S.carText === false) return;
   const sc = cur.script, x = sc && sc[k];
-  try{ navigator.mediaSession.metadata = new MediaMetadata(x ? {title:x.en, artist:x.ja || cur.title, album:cur.title} : {title:cur.title, artist:"ループリスニング", album:cur.tag||""}); }catch(e){}
+  let title = cur.title, artist = "ループリスニング";
+  if(x){
+    const en = chunkText(x.en, 50, true), ja = chunkText(x.ja || "", 24, false);
+    const f = Math.max(0, Math.min(0.999, (au.currentTime - x.s) / Math.max(0.5, (x.e - x.s))));
+    const ie = Math.floor(f * en.length), ij = Math.floor(f * ja.length);
+    title = (ie > 0 ? "…" : "") + en[ie] + (ie < en.length-1 ? " …" : "");
+    artist = ja[0] ? (ij > 0 ? "…" : "") + ja[ij] + (ij < ja.length-1 ? "…" : "") : cur.title;
+  }
+  const key = title + "|" + artist; if(key === carKey) return; carKey = key;
+  if(x && S.carArt !== false && artK !== k){ artK = k; try{ artURL = textArt(x.en, x.ja || ""); }catch(e){ artURL = ""; } }
+  if(!x) { artK = -2; artURL = ""; }
+  try{ navigator.mediaSession.metadata = new MediaMetadata(Object.assign({title, artist, album:cur.title}, artURL ? {artwork:[{src:artURL, sizes:"512x512", type:"image/png"}]} : {})); }catch(e){}
 }
 
 /* ---------- 設定 ---------- */
