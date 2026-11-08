@@ -142,6 +142,15 @@
     <b>保存容量</b><p class="small" id="quota"></p>
     <p class="small">ファイルはこのスマホのブラウザの中に保存されます。使わなくなったファイルはライブラリの 🗑 で消してください。</p>
   </div>
+  <div class="card">
+    <b>機種変更・バックアップ</b>
+    <p class="small">音声はこのスマホのブラウザの中にしかありません。機種変更の前に書き出して、Googleドライブに保存してください。新しいスマホで「読み込む」を押せば、音声・区切り・スクリプト・質問履歴が戻ります（APIキーは入っていないので、もう一度入れてください）。</p>
+    <button class="btn pri" id="bExpAll" style="width:100%">📦 全部まとめて書き出す（音声も含む）</button>
+    <button class="btn" id="bExpLite" style="width:100%;margin-top:6px">📝 区切り・スクリプト・質問履歴だけ書き出す（軽い）</button>
+    <p class="small">「軽い」方は音声が入っていません。新しいスマホで元の音声ファイルを同じ名前で取り込み直すと、区切りやスクリプトが自動で戻ります。元のファイルの場所は、ライブラリの各ファイルに表示しています。</p>
+    <label class="btn" style="display:block;text-align:center;margin-top:6px">📥 書き出したファイルを読み込む<input id="bImp" type="file" accept=".zip,.json,application/zip,application/json" style="display:none"></label>
+    <p class="small" id="bkMsg"></p>
+  </div>
 </section>
 </main>
 <div id="msg"></div>
@@ -202,11 +211,11 @@ function renderLib(){
                     .sort((a,b)=>(b.openedAt||b.addedAt)-(a.openedAt||a.addedAt));
   if(!metas.length){ $("#list").innerHTML = '<p class="small">まだありません。「＋ 追加」から音声や動画のファイルを選んでください（何個でもまとめて選べます）。</p>'; return; }
   $("#list").innerHTML = list.map(m=>{
-    if(editing===m.id) return `<div class="item"><div class="t"><label>名前</label><input id="eTitle" value="${esc(m.title)}"><label>タグ</label><input id="eTag" value="${esc(m.tag||"")}" placeholder="BBC、ニュース、商談 など" list="tagList"></div>
+    if(editing===m.id) return `<div class="item"><div class="t"><label>名前</label><input id="eTitle" value="${esc(m.title)}"><label>タグ</label><input id="eTag" value="${esc(m.tag||"")}" placeholder="BBC、ニュース、商談 など" list="tagList"><label>元のファイルの場所（メモ）</label><input id="eWhere" value="${esc(m.where||"")}" placeholder="例：Googleドライブ／英語学習"></div>
       <div class="ops" style="display:flex;flex-direction:column;gap:4px"><button data-save="${m.id}">保存</button><button data-cancel="1">戻る</button></div></div>`;
     const pct = m.duration ? Math.round((m.lastPos||0)/m.duration*100) : 0;
     return `<div class="item"><div class="t" data-open="${m.id}" style="cursor:pointer"><b>${/^video/.test(m.type)?"🎬 ":"🎧 "}${esc(m.title)}</b>
-      <span class="pill">${fmt(m.duration)}</span>${m.tag?'<span class="pill">'+esc(m.tag)+'</span>':""}${m.script?'<span class="pill">📝 スクリプト</span>':""}${pct?'<span class="pill">'+pct+'%</span>':""}</div>
+      <span class="pill">${fmt(m.duration)}</span>${m.tag?'<span class="pill">'+esc(m.tag)+'</span>':""}${m.script?'<span class="pill">📝 スクリプト</span>':""}${pct?'<span class="pill">'+pct+'%</span>':""}<div class="small" style="margin-top:2px">元のファイル：${esc(m.name||"")}${m.where?"（"+esc(m.where)+"）":""}</div></div>
       <div class="ops" style="display:flex;gap:4px"><button data-edit="${m.id}">✏️</button><button data-del="${m.id}">🗑</button></div></div>`;
   }).join("") + '<datalist id="tagList">' + tags.map(t=>'<option value="'+esc(t)+'">').join("") + '<option value="BBC"><option value="ニュース"><option value="商談"><option value="ポッドキャスト"></datalist>';
 }
@@ -217,7 +226,7 @@ $("#list").onclick = async e=>{
   if(b.dataset.open) return openItem(b.dataset.open);
   if(b.dataset.edit){ editing = b.dataset.edit; renderLib(); setTimeout(()=>$("#eTitle") && $("#eTitle").focus(), 50); return; }
   if(b.dataset.cancel){ editing = null; renderLib(); return; }
-  if(b.dataset.save){ const m = metas.find(x=>x.id===b.dataset.save); m.title = $("#eTitle").value.trim() || m.title; m.tag = $("#eTag").value.trim(); await DB.put("meta", m); editing = null; renderLib(); toast("保存しました"); return; }
+  if(b.dataset.save){ const m = metas.find(x=>x.id===b.dataset.save); m.title = $("#eTitle").value.trim() || m.title; m.tag = $("#eTag").value.trim(); m.where = $("#eWhere").value.trim(); await DB.put("meta", m); editing = null; renderLib(); toast("保存しました"); return; }
   if(b.dataset.del){
     if(!b.dataset.sure){ b.dataset.sure = "1"; b.textContent = "本当に?"; setTimeout(()=>{ delete b.dataset.sure; b.textContent = "🗑"; }, 3000); return; }
     await DB.del("meta", b.dataset.del); await DB.del("blobs", b.dataset.del);
@@ -234,6 +243,8 @@ $("#addFile").onchange = async e=>{
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
     const url = URL.createObjectURL(f); const duration = await mediaDuration(url); URL.revokeObjectURL(url);
     const m = {id, title:cleanName(f.name), tag:guessTag(f.name), name:f.name, type:f.type||"", size:f.size, duration, addedAt:Date.now(), lastPos:0, markers:[], script:null};
+    const pend = LS.get("ll_pending", {}), pk = f.name + "|" + f.size;
+    if(pend[pk]){ Object.assign(m, pend[pk], {id, name:f.name, size:f.size, type:f.type||pend[pk].type||""}); delete pend[pk]; LS.set("ll_pending", pend); toast("前のスマホの区切り・スクリプトを戻しました", 3000); }
     try{ await DB.put("blobs", f, id); await DB.put("meta", m); last = id; }
     catch(err){ toast("保存できませんでした（容量不足かもしれません）"); console.warn(err); }
   }
@@ -822,6 +833,81 @@ function setMedia(){
 function loadSetUI(){ $("#sWakeOn").value = S.wakeOn ? "1" : "0"; $("#sWake").value = S.wake || "アプリ"; $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
 ["#sWakeOn","#sWake"].forEach(id=>$(id).onchange = ()=>{ S.wakeOn = $("#sWakeOn").value==="1"; S.wake = $("#sWake").value.trim() || "アプリ"; saveS(); toast("保存しました"); });
 ["#sKey","#sGap","#sReps"].forEach(id=>$(id).onchange = ()=>{ S.key = $("#sKey").value.trim(); S.gap = Math.max(0, +$("#sGap").value||0); S.reps = Math.max(0, Math.round(+$("#sReps").value||0)); saveS(); toast("保存しました"); });
+/* ---------- 機種変更・バックアップ ---------- */
+const CRCT = (()=>{ const t = new Uint32Array(256); for(let n=0;n<256;n++){ let c = n; for(let k=0;k<8;k++) c = c&1 ? 0xEDB88320 ^ (c>>>1) : c>>>1; t[n] = c>>>0; } return t; })();
+function crc32(u8, c){ c = c===undefined ? 0xFFFFFFFF : c; for(let i=0;i<u8.length;i++) c = CRCT[(c ^ u8[i]) & 255] ^ (c >>> 8); return c; }
+async function blobCrc(b){ let c = 0xFFFFFFFF; const step = 8<<20; for(let o=0;o<b.size;o+=step) c = crc32(new Uint8Array(await b.slice(o, o+step).arrayBuffer()), c); return (c ^ 0xFFFFFFFF)>>>0; }
+async function makeZip(entries){   // [{name, blob}] 圧縮なしのzip
+  const parts = [], cd = [], enc = new TextEncoder(); let off = 0;
+  for(const e of entries){
+    const nm = enc.encode(e.name), crc = await blobCrc(e.blob), sz = e.blob.size;
+    const lh = new DataView(new ArrayBuffer(30)); lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0x0800,true); lh.setUint32(14,crc,true); lh.setUint32(18,sz,true); lh.setUint32(22,sz,true); lh.setUint16(26,nm.length,true);
+    parts.push(lh.buffer, nm, e.blob);
+    const ch = new DataView(new ArrayBuffer(46)); ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint16(8,0x0800,true); ch.setUint32(16,crc,true); ch.setUint32(20,sz,true); ch.setUint32(24,sz,true); ch.setUint16(28,nm.length,true); ch.setUint32(42,off,true);
+    cd.push(ch.buffer, nm); off += 30 + nm.length + sz;
+  }
+  const cdSize = cd.reduce((a,x)=>a+(x.byteLength||x.length),0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true); end.setUint16(8,entries.length,true); end.setUint16(10,entries.length,true); end.setUint32(12,cdSize,true); end.setUint32(16,off,true);
+  return new Blob([...parts, ...cd, end.buffer], {type:"application/zip"});
+}
+async function readZip(file){   // {name: Blob}
+  const tail = new DataView(await file.slice(Math.max(0, file.size-65558)).arrayBuffer()); let p = -1;
+  for(let i=tail.byteLength-22;i>=0;i--) if(tail.getUint32(i,true)===0x06054b50){ p = i; break; }
+  if(p<0) throw new Error("zipではありません");
+  const n = tail.getUint16(p+10,true), cdSize = tail.getUint32(p+12,true), cdOff = tail.getUint32(p+16,true);
+  const cd = new DataView(await file.slice(cdOff, cdOff+cdSize).arrayBuffer()), dec = new TextDecoder(), out = {}; let q = 0;
+  for(let i=0;i<n;i++){
+    const sz = cd.getUint32(q+20,true), nl = cd.getUint16(q+28,true), xl = cd.getUint16(q+30,true), cl = cd.getUint16(q+32,true), lo = cd.getUint32(q+42,true);
+    const name = dec.decode(new Uint8Array(cd.buffer, q+46, nl));
+    const lh = new DataView(await file.slice(lo, lo+30).arrayBuffer()), st = lo + 30 + lh.getUint16(26,true) + lh.getUint16(28,true);
+    out[name] = file.slice(st, st+sz); q += 46 + nl + xl + cl;
+  }
+  return out;
+}
+function backupData(){ const s = Object.assign({}, S); delete s.key; return {app:"loop-listening", v:1, at:Date.now(), settings:s, qa:QA.all(), metas}; }
+async function shareOrSave(blob, name){
+  const f = new File([blob], name, {type:blob.type});
+  try{ if(navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:name}); $("#bkMsg").textContent = "共有メニューで「ドライブ」を選ぶとGoogleドライブに保存できます。"; return; } }
+  catch(e){ if(e.name==="AbortError") return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 60000);
+  $("#bkMsg").textContent = "ダウンロードフォルダに保存しました。Googleドライブのアプリで「＋」→「アップロード」から保存してください。";
+}
+const stamp = ()=>{ const d = new Date(); return d.getFullYear() + String(d.getMonth()+1).padStart(2,"0") + String(d.getDate()).padStart(2,"0"); };
+$("#bExpAll").onclick = async ()=>{
+  $("#bkMsg").textContent = "まとめています…（大きいファイルがあると時間がかかります）";
+  try{
+    const entries = [{name:"backup.json", blob:new Blob([JSON.stringify(backupData())], {type:"application/json"})}];
+    for(const m of metas){ const b = await DB.get("blobs", m.id); if(b) entries.push({name:"audio/" + m.id, blob:b}); }
+    const zip = await makeZip(entries);
+    $("#bkMsg").textContent = "できました（" + Math.round(zip.size/1e6) + "MB）";
+    await shareOrSave(zip, "loop-listening-" + stamp() + ".zip");
+  }catch(e){ $("#bkMsg").textContent = "書き出せませんでした：" + e.message; }
+};
+$("#bExpLite").onclick = ()=>shareOrSave(new Blob([JSON.stringify(backupData())], {type:"application/json"}), "loop-listening-" + stamp() + ".json");
+$("#bImp").onchange = async e=>{
+  const f = e.target.files[0]; e.target.value = ""; if(!f) return;
+  $("#bkMsg").textContent = "読み込んでいます…";
+  try{
+    let data, files = {};
+    if(/\.json$/i.test(f.name) || f.type==="application/json") data = JSON.parse(await f.text());
+    else { files = await readZip(f); data = JSON.parse(await files["backup.json"].text()); }
+    if(data.app !== "loop-listening") throw new Error("このアプリのバックアップではありません");
+    const have = await DB.all("meta") || [], pend = LS.get("ll_pending", {}); let nAudio = 0, nMerge = 0, nPend = 0;
+    for(const m of data.metas || []){
+      const b = files["audio/" + m.id];
+      if(b){ const blob = new Blob([b], {type:m.type||""}); await DB.put("blobs", blob, m.id); await DB.put("meta", m); nAudio++; continue; }
+      const same = have.find(x=>x.name===m.name && x.size===m.size);
+      if(same){ const keep = {id:same.id}; Object.assign(same, m, keep); await DB.put("meta", same); nMerge++; }
+      else if(!have.some(x=>x.id===m.id)){ const c = Object.assign({}, m); delete c.id; pend[m.name + "|" + m.size] = c; nPend++; }
+    }
+    LS.set("ll_pending", pend);
+    if(data.qa && data.qa.length){ const ids = new Set(QA.all().map(x=>x.at)); QA.save(QA.all().concat(data.qa.filter(x=>!ids.has(x.at))).sort((a,b)=>b.at-a.at)); renderQA(); }
+    if(data.settings){ const k = S.key; Object.assign(S, data.settings, {key:k}); saveS(); loadSetUI(); }
+    await loadLib();
+    $("#bkMsg").textContent = `読み込みました：音声 ${nAudio} 件` + (nMerge ? `、区切り等を戻したもの ${nMerge} 件` : "") + (nPend ? `、あとで音声を取り込むと戻るもの ${nPend} 件` : "");
+  }catch(err){ $("#bkMsg").textContent = "読み込めませんでした：" + err.message; }
+};
+
 async function showQuota(){ try{ const e = await navigator.storage.estimate(); $("#quota").textContent = `使用中 ${Math.round(e.usage/1e6)}MB ／ 使える目安 ${Math.round(e.quota/1e6)}MB`; }catch(e){ $("#quota").textContent = "不明"; } }
 document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") saveMeta(); });
 
