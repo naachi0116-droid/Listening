@@ -143,6 +143,11 @@
     <p class="small">ファイルはこのスマホのブラウザの中に保存されます。使わなくなったファイルはライブラリの 🗑 で消してください。</p>
   </div>
   <div class="card">
+    <b>動作ログ（止まったときの原因調べ用）</b>
+    <p class="small">再生が勝手に止まったら、この画面をスクリーンショットで送ってください。</p>
+    <pre id="evLog" class="small" style="white-space:pre-wrap;max-height:220px;overflow:auto;margin:0"></pre>
+  </div>
+  <div class="card">
     <b>機種変更・バックアップ</b>
     <p class="small">音声はこのスマホのブラウザの中にしかありません。機種変更の前に書き出して、Googleドライブに保存してください。新しいスマホで「読み込む」を押せば、音声・区切り・スクリプト・質問履歴が戻ります（APIキーは入っていないので、もう一度入れてください）。</p>
     <button class="btn pri" id="bExpAll" style="width:100%">📦 全部まとめて書き出す（音声も含む）</button>
@@ -254,6 +259,11 @@ $("#addFile").onchange = async e=>{
 
 /* ---------- 再生 ---------- */
 const au = $("#au");
+// 動作ログ（なぜ止まったかを調べるため）
+const LOG = [];
+function logEv(s){ const d = new Date(); LOG.unshift(d.toTimeString().slice(0,8) + " " + s + (document.hidden ? "（裏）" : "")); LOG.length = Math.min(LOG.length, 40); const el = $("#evLog"); if(el) el.textContent = LOG.join("\n"); }
+["play","pause","ended","stalled","waiting","suspend","emptied","error"].forEach(ev=>au.addEventListener(ev, ()=>{ if(ev==="suspend" && !au.paused) return; logEv("音声：" + ({play:"再生",pause:"一時停止",ended:"最後まで再生",stalled:"読み込みが止まった",waiting:"読み込み待ち",suspend:"読み込み休止",emptied:"空になった",error:"エラー"}[ev]) + (ev==="pause" ? (userPaused ? "（操作で）" : "（外から）") : "")); }));
+document.addEventListener("visibilitychange", ()=>logEv(document.hidden ? "画面：裏に回った" : "画面：表に戻った"));
 let loopR = null, cur = null, url = null, loopOn = false, loopCount = 0, peaks = null, savingT = null;
 function segs(){ const d = cur ? (cur.duration || au.duration || 0) : 0; const m = (cur && cur.markers || []).filter(x=>x>0.05 && x<d-0.05); return [0, ...m, d]; }
 function segIndex(t){ const b = segs(); for(let i=b.length-2;i>=0;i--) if(t >= b[i]-0.02) return i; return 0; }
@@ -368,7 +378,7 @@ async function update(){
   const [ls, le] = loopOn ? loopR : [s, e];
   if(loopOn && !waiting && !au.paused && t >= le - 0.03 && le - ls > 0.1){   // 短い区切りでもループする
     if(S.reps && loopCount+1 >= S.reps){ loopCount = 0; loopOn = false; $("#bLoop").classList.remove("on"); }
-    else if(S.gap > 0){
+    else if(S.gap > 0 && !document.hidden){   // 裏ではタイマーが止まるので、間をあけずにループ
       waiting = true; au.pause(); loopCount++;
       await sleep(S.gap*1000); au.currentTime = ls; waiting = false; au.play().catch(()=>{});
     } else { loopCount++; au.currentTime = ls; }   // 止めずにすぐ頭へ戻す
@@ -388,7 +398,7 @@ async function update(){
   draw();
   clearTimeout(savingT); savingT = setTimeout(saveMeta, 3000);
 }
-au.ontimeupdate = ()=>{ if(au.paused) update(); };
+au.ontimeupdate = ()=>{ if(au.paused || document.hidden) update(); };   // 裏に回っていてもループが効くように
 au.onended = ()=>{ if(S.all && !loopOn){ loopCount = 0; setTimeout(()=>{ au.currentTime = 0; au.play().catch(()=>{}); }, 800); return; }
   if(loopOn){ const [s] = segRange(segIndex(au.duration-0.1)); loopCount++; setTimeout(()=>{ au.currentTime = s; au.play().catch(()=>{}); }, Math.max(0,S.gap)*1000); } };
 
@@ -745,7 +755,7 @@ function startVoice(quiet){
   if(voiceOn) return;
   if(S.key && navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
     voiceOn = true; lastRecT = Date.now(); $("#bVoice").classList.add("on"); voiceHint("🎙 マイクを準備しています…");
-    aiMic.start().then(()=>voiceHint("🎙 聞いています（AI聞き取り）：" + (S.wakeOn ? "「次」「戻って」「区切り40」「0.5倍」「止めて」「質問」など、命令の言葉だけを言ってください" : "「次」「戻って」「区切り40」「遅くして」「0.5倍」「通しで」「止めて」「質問」")))
+    logEv("マイク：開始"); aiMic.start().then(()=>voiceHint("🎙 聞いています（AI聞き取り）：" + (S.wakeOn ? "「次」「戻って」「区切り40」「0.5倍」「止めて」「質問」など、命令の言葉だけを言ってください" : "「次」「戻って」「区切り40」「遅くして」「0.5倍」「通しで」「止めて」「質問」")))
       .catch(e=>{ voiceOn = false; $("#bVoice").classList.remove("on"); const el = $("#voiceHint"); el.style.display = "block"; el.textContent = "🎙 マイクが使えません。画面を1回タップしてください"; if(!quiet) toast("マイクが許可されていません", 3000); });
     return;
   }
@@ -760,7 +770,7 @@ function startVoice(quiet){
   voiceOn = true; $("#bVoice").classList.add("on"); voiceHint("🎙 聞いています");
 }
 let lastHeard = 0;
-function stopVoice(){ voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); if(aiMic.active) aiMic.stop(); try{ rec && rec.stop(); }catch(e){} rec = null; }
+function stopVoice(){ logEv("マイク：停止"); voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); if(aiMic.active) aiMic.stop(); try{ rec && rec.stop(); }catch(e){} rec = null; }
 $("#bVoice").onclick = ()=>{ if(voiceOn){ stopVoice(); S.voice = false; } else { S.voice = true; startVoice(); } saveS(); };
 // ボタンを触らなくても聞くように：開いたとき・再生が始まったとき・画面に触れたときに自動でマイクを入れる
 const autoVoice = ()=>{ if(aiMic.ctx && aiMic.ctx.state==="suspended") aiMic.ctx.resume().catch(()=>{}); if(S.voice && !voiceOn) startVoice(true); };
@@ -846,7 +856,8 @@ function setMedia(){
   try{
     navigator.mediaSession.metadata = new MediaMetadata({title:cur.title, artist:"ループリスニング", album:cur.tag||""});
     const h = (a, f)=>{ try{ navigator.mediaSession.setActionHandler(a, f); }catch(e){} };
-    h("play", ()=>au.play()); h("pause", ()=>userPause());
+    h("play", ()=>{ logEv("車/イヤホン：再生ボタン"); au.play(); }); h("pause", ()=>{ logEv("車/イヤホン：一時停止ボタン"); userPause(); });
+    h("stop", ()=>{ logEv("車/イヤホン：停止ボタン"); userPause(); });
     h("previoustrack", ()=>gotoSeg(-1)); h("nexttrack", ()=>gotoSeg(+1));
     h("seekbackward", ()=>seek(au.currentTime-5)); h("seekforward", ()=>seek(au.currentTime+5));
   }catch(e){}
