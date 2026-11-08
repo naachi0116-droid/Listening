@@ -687,10 +687,11 @@ function makeWav16(chunks){
 }
 let TXM = "";
 async function transcribeCmd(blob){
-  for(const m of (TXM ? [TXM] : ["gpt-4o-mini-transcribe", "gpt-transcribe"])){
-    const fd = new FormData(); fd.append("file", blob, "cmd.wav"); fd.append("model", m); fd.append("language", "ja");
+  // whisper-1 は「日本語で」の指定をきちんと守る（他のモデルはハンガリー語などに聞き違えることがあった）
+  for(const m of (TXM ? [TXM] : ["whisper-1", "gpt-4o-mini-transcribe"])){
+    const fd = new FormData(); fd.append("file", blob, "cmd.wav"); fd.append("model", m); fd.append("language", "ja"); fd.append("prompt", "日本語の話し言葉です。");
     try{ const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer "+S.key}, body:fd});
-      if(r.ok){ TXM = m; return ((await r.json()).text||"").trim(); }
+      if(r.ok){ TXM = m; const t = ((await r.json()).text||"").trim(); return /[ぁ-んァ-ヶ一-龥]/.test(t) || /^app/i.test(t) ? t : ""; }   // 日本語が入っていない結果は捨てる
       if(r.status===401){ toast("APIキーが使えません"); return ""; } }catch(e){}
   }
   return "";
