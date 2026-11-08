@@ -638,6 +638,17 @@ function voiceHint(s){ const el = $("#voiceHint"); el.style.display = voiceOn ? 
 // 聞こえた言葉を処理する（AI聞き取り・ブラウザの聞き取りの両方で使う）
 let qDeb = 0, lastQ = "", wakeT = 0;
 const submitQ = q=>{ q = q.trim(); if(!qMode || q.length < 2) return; qMode = false; clearTimeout(qTimer); clearTimeout(qDeb); askAI(q); };
+// 合言葉が多少ちがって聞こえても受け付ける（例：アップリ、アフリ、App）。合った場合は合言葉の後ろの位置を返す
+function lev(a, b){ const d = Array.from({length:a.length+1}, (_,i)=>[i]); for(let j=1;j<=b.length;j++) d[0][j] = j;
+  for(let i=1;i<=a.length;i++) for(let j=1;j<=b.length;j++) d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1] + (a[i-1]===b[j-1]?0:1)); return d[a.length][b.length]; }
+function wakeMatch(k, w){
+  const low = k.toLowerCase(), m = low.match(/^.{0,3}?(app(?:li|le|ly)?|アプリ)/i);
+  if(/^(あぷり|アプリ)$/.test(w) && m) return m.index + m[0].length;
+  const tol = w.length >= 3 ? 1 : 0;
+  for(let s=0; s<=3 && s<k.length; s++) for(const L of [w.length, w.length+1, w.length-1]){
+    if(L < 1 || s+L > k.length) continue; if(lev(k.slice(s, s+L), w) <= tol) return s + L; }
+  return -1;
+}
 function handleHeard(txt){
   txt = (txt||"").trim(); if(!txt) return false;
   if(speaking){ if(/止め|ストップ/.test(txt)) stopSpeak(); return true; }
@@ -647,8 +658,8 @@ function handleHeard(txt){
   if(S.wakeOn){
     const kana = s=>s.replace(/[ァ-ヶ]/g, c=>String.fromCharCode(c.charCodeAt(0)-0x60)).replace(/ぇ/g,"え");
     const w = kana((S.wake||"アプリ").replace(/[\s、。,.!?！？ー〜]/g, "")), k = kana(plain);
-    const at = k.indexOf(w);
-    if(at >= 0 && at <= 3){ plain = plain.slice(at + w.length);
+    const cut = wakeMatch(k, w);
+    if(cut >= 0){ plain = plain.slice(cut);
       if(!plain){ wakeT = Date.now(); voiceHint("🎙 はい（どうぞ）"); beep(); return true; } }
     else if(Date.now() - wakeT > 4000){ voiceHint("👂 " + txt + "（合言葉なし）"); return false; }
     wakeT = 0;
