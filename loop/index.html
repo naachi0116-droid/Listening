@@ -308,9 +308,14 @@ function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); 
 let userPaused = true, lastRecT = 0;
 function userPause(){ userPaused = true; au.pause(); }
 au.addEventListener("play", ()=>{ userPaused = false; });
+// 自分で止めていないのに止まったとき（ナビの案内・マイクの切り替えなど）は再生に戻す。ただし10秒に3回まで
+let autoResumes = [];
 au.addEventListener("pause", ()=>{
-  if(userPaused || waiting || drag || au.ended || !cur || Date.now() - lastRecT > 3000) return;
-  setTimeout(()=>{ if(au.paused && !userPaused && !waiting && !drag) au.play().catch(()=>{}); }, 300);
+  if(userPaused || waiting || drag || au.ended || !cur) return;
+  const now = Date.now(); autoResumes = autoResumes.filter(t=>now - t < 10000);
+  if(autoResumes.length >= 3) return;
+  autoResumes.push(now);
+  setTimeout(()=>{ if(au.paused && !userPaused && !waiting && !drag) au.play().catch(()=>{}); }, 600);
 });
 $("#bPlay").onclick = togglePlay;
 au.onplay = ()=>{ $("#bPlay").textContent = "⏸"; tick(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "playing"; };
@@ -704,7 +709,8 @@ async function transcribeCmd(blob){
 const aiMic = {
   active:false, stream:null, ctx:null, src:null, proc:null, floor:0.01, inSpeech:false, onMs:0, silMs:0, seg:[], pre:[], chain:Promise.resolve(),
   async start(){
-    this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+    // エコー除去をオンにすると、スマホが「通話モード」になって車のBluetoothで音楽が止まることがあるのでオフ
+    this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
     this.ctx = new (window.AudioContext || window.webkitAudioContext)(); try{ await this.ctx.resume(); }catch(e){}
     this.src = this.ctx.createMediaStreamSource(this.stream); this.proc = this.ctx.createScriptProcessor(4096, 1, 1);
     const mute = this.ctx.createGain(); mute.gain.value = 0; this.src.connect(this.proc); this.proc.connect(mute); mute.connect(this.ctx.destination);
