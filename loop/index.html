@@ -155,7 +155,7 @@ const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
-let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, voice:true}, LS.get("ll_settings", {}));
+let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, jaNow:true, voice:true}, LS.get("ll_settings", {}));
 if(!S.key) S.key = LS.get("nl.key", "") || (LS.get("eq_settings", {}).key || "");
 const saveS = ()=>LS.set("ll_settings", S);
 if(!LS.get("ll_v2", false)){ S.gap = 0; LS.set("ll_v2", true); saveS(); }
@@ -313,10 +313,10 @@ $("#bUnmark").onclick = ()=>{
   if(k<0) return; const x = cur.markers.splice(k,1)[0]; if(loopOn){ loopR = loopRangeFor(segIndex(au.currentTime)); } saveMeta(); draw(); toast("区切り " + fmt(x) + " を消しました");
 };
 $("#bJa").onclick = ()=>{ S.jaAll = !S.jaAll; saveS(); $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; renderScript(); update(); };
-// 英文を押すと和訳を出す。もう一度押すと消す（文が変わると、また隠す）
-let jaOpen = false, curK = -1;
+// 和訳はいつも表示。英文を押すと消え、もう一度押すと出る
+let jaOpen = S.jaNow !== false, curK = -1;
 function showNowJa(){ const sc = cur && cur.script; $("#nowJa").textContent = (jaOpen && sc && sc[curK]) ? (sc[curK].ja || "（和訳なし）") : ""; }
-$("#nowEn").onclick = ()=>{ if(curK < 0) return; jaOpen = !jaOpen; showNowJa(); };
+$("#nowEn").onclick = ()=>{ if(curK < 0) return; jaOpen = !jaOpen; S.jaNow = jaOpen; saveS(); showNowJa(); };
 $("#bScr").onclick = ()=>makeScript();
 
 /* 再生位置の監視（ループ・表示） */
@@ -352,7 +352,7 @@ async function update(){
     if(k >= 0 && t > sc[k].e + 0.6) k = -1;   // 文と文のすき間（音楽・広告の切れ目など）では何も出さない
     if(k !== lastScrIdx){
       lastScrIdx = k;
-      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; curK = k; jaOpen = false; showNowJa();
+      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; curK = k; showNowJa();
       document.querySelectorAll(".sl.cur").forEach(x=>x.classList.remove("cur"));
       const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); followScript(el); }
     }
@@ -577,7 +577,7 @@ function renderScript(){
 $("#scr").addEventListener("wheel", ()=>{ userScrollT = Date.now(); }, {passive:true});
 $("#scr").addEventListener("touchmove", ()=>{ userScrollT = Date.now(); }, {passive:true});
 $("#scr").onclick = e=>{ const r = e.target.closest(".sl"); if(!r || !cur) return; const i = +r.dataset.i, x = cur.script[i];
-  if(i === curK){ jaOpen = !jaOpen; showNowJa(); return; }   // 今の文をもう一度押すと和訳
+  if(i === curK){ jaOpen = !jaOpen; S.jaNow = jaOpen; saveS(); showNowJa(); return; }   // 今の文をもう一度押すと和訳
   seek(x.s + 0.01); au.play().catch(()=>{}); };
 
 /* ---------- 音声で操作 ---------- */
@@ -585,8 +585,17 @@ let rec = null, voiceOn = false;
 function jaNum(s){
   s = s.replace(/[０-９．]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
   const k = {"ゼロ":0,"れい":0,"零":0,"一":1,"いち":1,"二":2,"三":3,"さん":3,"四":4,"よん":4,"五":5,"六":6,"ろく":6,"七":7,"なな":7,"八":8,"はち":8,"九":9,"きゅう":9};
-  return s.replace(/(ゼロ|れい|零|一|いち|二|三|さん|四|よん|五|六|ろく|七|なな|八|はち|九|きゅう)/g, m=>k[m]).replace(/(\d)\s*(点|てん)\s*(\d)/g, "$1.$3");
+  return s.replace(/(ゼロ|れい|零|一|いち|二|三|さん|四|よん|五|六|ろく|七|なな|八|はち|九|きゅう)/g, m=>k[m]).replace(/(\d)\s*(点|てん)\s*(\d)/g, "$1.$3")
+    .replace(/(\d?)百(?:(\d?)十)?(\d?)/g, (m,a,b,c)=>String((+(a||1))*100 + (b!==undefined ? (+(b||1))*10 : 0) + (+(c||0))))
+    .replace(/(\d?)十(\d?)/g, (m,a,b)=>String((+(a||1))*10 + (+(b||0))));
 }
+// 「区切り40」「40番」「40個目」「40に飛んで」→ 40番目の区切りへ
+function jumpTarget(raw){
+  const t = jaNum(raw.replace(/\s/g, "")); let m;
+  if((m = t.match(/(?:区切り|くぎり|番号)(\d{1,4})/)) || (m = t.match(/(\d{1,4})(?:番目|番|個目|こ目|つ目|に飛|へ飛|まで飛|に移動|に行|へ行)/))) return +m[1];
+  return 0;
+}
+function gotoIndex(n){ if(!cur) return; const N = segs().length-1; const j = Math.max(0, Math.min(N-1, n-1)); seek(loopRangeFor(j)[0]); if(au.paused) au.play().catch(()=>{}); return j+1; }
 function voiceCmd(raw){
   const t = jaNum(raw.replace(/\s/g, ""));
   let m;
@@ -609,7 +618,7 @@ function startVoice(quiet){
   if(!SR){ if(quiet) return; toast("このブラウザは音声操作に対応していません（Chrome か Safari で開いてください）", 4000); return; }
   rec = new SR(); rec.lang = "ja-JP"; rec.continuous = true; rec.interimResults = true;
   // 最後まで待たず、聞こえた途中の言葉ですぐ動く（音楽が鳴っていると「確定」まで10秒以上かかるため）
-  let used = {}, qIdx = -1, qFrom = 0, qDeb = 0, lastQ = "";
+  let used = {}, qIdx = -1, qFrom = 0, qDeb = 0, lastQ = "", jDeb = 0;
   const submitQ = q=>{ q = q.trim(); if(!qMode || q.length < 2) return; qMode = false; clearTimeout(qTimer); clearTimeout(qDeb); askAI(q); };
   rec.onresult = e=>{
     for(let i=e.resultIndex; i<e.results.length; i++){
@@ -626,6 +635,8 @@ function startVoice(quiet){
       voiceHint("👂 " + txt);
       if(!part.trim()) continue;
       if(/質問/.test(part)){ used[i] = txt.length; qIdx = i; qFrom = from + part.indexOf("質問"); lastQ = ""; startAsk(); continue; }
+      const jn = jumpTarget(part);
+      if(jn){ clearTimeout(jDeb); jDeb = setTimeout(()=>{ used[i] = txt.length; const k = gotoIndex(jumpTarget(txt.slice(from)) || jn); voiceHint("🎙 区切り " + k + " へ"); toast("区切り " + k + " へ", 1500); }, 900); continue; }   // 数字は言い終わるのを少し待つ（40を4と取らないように）
       const done = voiceCmd(part);
       if(done){ used[i] = txt.length; voiceHint("🎙 " + done); toast(done, 1500); }
     }
@@ -637,7 +648,7 @@ function startVoice(quiet){
   rec.onstart = ()=>{ used = {}; qIdx = -1; };
   rec.onend = ()=>{ if(voiceOn) setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 300); };   // 切れても聞き続ける
   try{ rec.start(); }catch(e){}
-  voiceOn = true; $("#bVoice").classList.add("on"); voiceHint("🎙 聞いています：「次」「戻って」「遅くして」「0.5倍」「通しで」「ループ」「止めて」「質問」");
+  voiceOn = true; $("#bVoice").classList.add("on"); voiceHint("🎙 聞いています：「次」「戻って」「区切り40」「遅くして」「0.5倍」「通しで」「ループ」「止めて」「質問」");
 }
 function stopVoice(){ voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); try{ rec && rec.stop(); }catch(e){} rec = null; }
 $("#bVoice").onclick = ()=>{ if(voiceOn){ stopVoice(); S.voice = false; } else { S.voice = true; startVoice(); } saveS(); };
