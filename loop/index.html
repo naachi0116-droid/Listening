@@ -134,9 +134,9 @@
     <p class="small">同じサイトの英作文アプリやながらリスニングに入れたキーがあれば自動で使います。費用はスクリプト作成が音声1分あたり約0.6セント（16分で約10セント）、和訳はほぼ無料です。</p>
     <label>ループのあいだの間（秒・0＝止めずにすぐくり返す）</label><input id="sGap" type="number" step="0.1" min="0">
     <label>ループの回数（0＝止めるまで）</label><input id="sReps" type="number" step="1" min="0">
-    <label>声で操作するときの合言葉（シャドーイング中の英語に反応しないように）</label>
-    <div class="row"><select id="sWakeOn" style="flex:0 0 auto"><option value="1">使う</option><option value="0">使わない</option></select><input id="sWake" placeholder="アプリ"></div>
-    <p class="small">「アプリ、次」「アプリ、戻って」のように、合言葉を先に言ったときだけ動きます。合言葉だけ言うと、4秒間は合言葉なしで聞きます。「ねえ」「えっと」のような言葉はAIが文字にしないことが多いので、はっきりした言葉にしてください。</p>
+    <label>シャドーイングしても反応しにくくする</label>
+    <div class="row"><select id="sWakeOn" style="flex:0 0 auto"><option value="1">する</option><option value="0">しない</option></select><input id="sWake" placeholder="アプリ"></div>
+    <p class="small">「する」にすると、「次」「戻って」「0.5倍」のように命令の言葉だけを言ったときに動き、英語の文をシャドーイングしても反応しません。右の欄の合言葉（例：アプリ）を先に言えば、「アプリ、次の区切りに行って」のような長い言い方もできます。</p>
   </div>
   <div class="card">
     <b>保存容量</b><p class="small" id="quota"></p>
@@ -629,7 +629,7 @@ function voiceCmd(raw){
   if(/通し|とおし|全部|ぜんぶ/.test(t)){ setAll(true); if(au.paused) au.play().catch(()=>{}); return "通しリピート"; }
   if(/ループ|繰り返|くりかえ/.test(t)){ if(!loopOn) $("#bLoop").click(); return "区切りループ"; }
   if(/戻|もど|前へ|前に|まえ/.test(t)){ gotoSeg(-1, true); return "1つ前の区切り"; }
-  if(/次|つぎ|ツギ|月|継ぎ|注ぎ|ネクスト|next|進|すすん|スキップ/i.test(t)){ gotoSeg(+1); return "次の区切り"; }
+  if(/次|つぎ|ツギ|月|継ぎ|注ぎ|進んで|すすんで|スキップ/i.test(t)){ gotoSeg(+1); return "次の区切り"; }
   if(/止め|とめ|ストップ|停止/.test(t)){ userPause(); return "停止"; }
   if(/再生|スタート|始め|はじめ/.test(t)){ au.play().catch(()=>{}); return "再生"; }
   return "";
@@ -649,6 +649,7 @@ function wakeMatch(k, w){
     if(L < 1 || s+L > k.length) continue; if(lev(k.slice(s, s+L), w) <= tol) return s + L; }
   return -1;
 }
+const ONLY_CMD = /^(次|つぎ|ツギ|次へ|次に|次の|次行って|次いって|継ぎ|注ぎ|戻って|戻る|もどって|もどる|戻れ|前|前へ|前に|1個戻って|1つ戻って|止めて|とめて|止まって|ストップ|停止|再生|スタート|続けて|遅く|ゆっくり|おそく|速く|早く|はやく|\d+(\.\d+)?倍(に)?|半分|区切り\d+|\d+番(目)?|\d+個目|通しで?|全部|ループ|繰り返し|質問.*)$/;
 function handleHeard(txt){
   txt = (txt||"").trim(); if(!txt) return false;
   if(speaking){ if(/止め|ストップ/.test(txt)) stopSpeak(); return true; }
@@ -661,7 +662,11 @@ function handleHeard(txt){
     const cut = wakeMatch(k, w);
     if(cut >= 0){ plain = plain.slice(cut);
       if(!plain){ wakeT = Date.now(); voiceHint("🎙 はい（どうぞ）"); beep(); return true; } }
-    else if(Date.now() - wakeT > 4000){ voiceHint("👂 " + txt + "（合言葉なし）"); return false; }
+    else if(Date.now() - wakeT > 4000){
+      // 合言葉なしでも、命令の言葉「だけ」を言ったときは動く（シャドーイングの英語の文には反応しない）
+      const p2 = jaNum(plain).replace(/(して|してください|お願いします|お願い|ください|です)$/, "");
+      if(!ONLY_CMD.test(p2)){ voiceHint("👂 " + txt + "（命令ではないので無視）"); return false; }
+    }
     wakeT = 0;
   }
   voiceHint("👂 " + txt);
@@ -734,7 +739,7 @@ function startVoice(quiet){
   if(voiceOn) return;
   if(S.key && navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
     voiceOn = true; lastRecT = Date.now(); $("#bVoice").classList.add("on"); voiceHint("🎙 マイクを準備しています…");
-    aiMic.start().then(()=>voiceHint("🎙 聞いています（AI聞き取り）：" + (S.wakeOn ? "「" + S.wake + "、次」のように合言葉から" : "「次」「戻って」「区切り40」「遅くして」「0.5倍」「通しで」「止めて」「質問」")))
+    aiMic.start().then(()=>voiceHint("🎙 聞いています（AI聞き取り）：" + (S.wakeOn ? "「次」「戻って」「区切り40」「0.5倍」「止めて」「質問」など、命令の言葉だけを言ってください" : "「次」「戻って」「区切り40」「遅くして」「0.5倍」「通しで」「止めて」「質問」")))
       .catch(e=>{ voiceOn = false; $("#bVoice").classList.remove("on"); const el = $("#voiceHint"); el.style.display = "block"; el.textContent = "🎙 マイクが使えません。画面を1回タップしてください"; if(!quiet) toast("マイクが許可されていません", 3000); });
     return;
   }
