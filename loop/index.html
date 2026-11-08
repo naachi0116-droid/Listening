@@ -597,7 +597,7 @@ function voiceCmd(raw){
   if(/通し|とおし|全部|ぜんぶ/.test(t)){ setAll(true); if(au.paused) au.play().catch(()=>{}); return "通しリピート"; }
   if(/ループ|繰り返|くりかえ/.test(t)){ if(!loopOn) $("#bLoop").click(); return "区切りループ"; }
   if(/戻|もど|前へ|前に|まえ/.test(t)){ gotoSeg(-1, true); return "1つ前の区切り"; }
-  if(/次|つぎ|ネクスト/.test(t)){ gotoSeg(+1); return "次の区切り"; }
+  if(/次|つぎ|ツギ|月|継ぎ|注ぎ|ネクスト|next|進|すすん|スキップ/i.test(t)){ gotoSeg(+1); return "次の区切り"; }
   if(/止め|とめ|ストップ|停止/.test(t)){ au.pause(); return "停止"; }
   if(/再生|スタート|始め|はじめ/.test(t)){ au.play().catch(()=>{}); return "再生"; }
   return "";
@@ -607,11 +607,12 @@ function startVoice(quiet){
   if(voiceOn) return;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR){ if(quiet) return; toast("このブラウザは音声操作に対応していません（Chrome か Safari で開いてください）", 4000); return; }
-  rec = new SR(); rec.lang = "ja-JP"; rec.continuous = true; rec.interimResults = false;
+  rec = new SR(); rec.lang = "ja-JP"; rec.continuous = true; rec.interimResults = true;
   rec.onresult = e=>{
     for(let i=e.resultIndex; i<e.results.length; i++){
-      if(!e.results[i].isFinal) continue;
       const txt = e.results[i][0].transcript;
+      if(!e.results[i].isFinal){ if(!speaking) voiceHint("👂 " + txt); continue; }
+      voiceHint("👂 「" + txt + "」");
       if(speaking){ if(/止め|ストップ/.test(txt)) stopSpeak(); continue; }
       if(qMode){ if(txt.trim().length < 2) continue; qMode = false; clearTimeout(qTimer); askAI(txt.trim()); continue; }
       if(/質問/.test(txt)){ const rest = txt.replace(/.*?質問(です|があります|して|したい)?[、。,\s]*/, "").trim();
@@ -620,7 +621,10 @@ function startVoice(quiet){
       if(done){ voiceHint("🎙 " + done); toast(done, 1500); }
     }
   };
-  rec.onerror = e=>{ if(e.error==="not-allowed" || e.error==="service-not-allowed"){ voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); if(!quiet) toast("マイクが許可されていません", 3000); } };
+  rec.onerror = e=>{
+    if(e.error==="not-allowed" || e.error==="service-not-allowed"){ voiceOn = false; $("#bVoice").classList.remove("on"); const el = $("#voiceHint"); el.style.display = "block"; el.textContent = "🎙 マイクが止まっています。画面のどこかを1回タップしてください"; if(!quiet) toast("マイクが許可されていません", 3000); }
+    else if(e.error !== "no-speech" && e.error !== "aborted") voiceHint("⚠️ 音声認識のエラー：" + e.error);
+  };
   rec.onend = ()=>{ if(voiceOn) setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 300); };   // 切れても聞き続ける
   try{ rec.start(); }catch(e){}
   voiceOn = true; $("#bVoice").classList.add("on"); voiceHint("🎙 聞いています：「次」「戻って」「遅くして」「0.5倍」「通しで」「ループ」「止めて」「質問」");
