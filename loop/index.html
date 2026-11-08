@@ -250,7 +250,7 @@ function loopRangeFor(i){
   const [s, e] = segRange(i); if(!env) return [s, e];
   let a = s; while(a < e-0.3 && silentAt(a)) a += 0.05;
   let b = e; while(b > a+0.3 && silentAt(b-0.05)) b -= 0.05;
-  if(b - a < 0.4) return [s, e];
+  if(b - a < 0.4 || e - s < 1.2) return [s, e];   // 短い区切りは削らない
   return [Math.max(s, a-0.15), Math.min(e, b+0.3)];
 }
 function envFrom(pcm, rate){ const fr = Math.round(rate*0.05), n = Math.floor(pcm.length/fr), out = new Array(n); let mx = 1e-9; const r = new Float32Array(n);
@@ -338,7 +338,7 @@ async function update(){
   $("#segInfo").textContent = `区切り ${i+1}/${n}` + (loopOn ? `　🔁${S.reps ? (loopCount+1)+"/"+S.reps : (loopCount+1)+"回目"}` : "");
   if(loopOn && !loopR) loopR = loopRangeFor(i);
   const [ls, le] = loopOn ? loopR : [s, e];
-  if(loopOn && !waiting && !au.paused && t >= le - 0.03 && le - ls > 0.3){
+  if(loopOn && !waiting && !au.paused && t >= le - 0.03 && le - ls > 0.1){   // 短い区切りでもループする
     if(S.reps && loopCount+1 >= S.reps){ loopCount = 0; loopOn = false; $("#bLoop").classList.remove("on"); }
     else if(S.gap > 0){
       waiting = true; au.pause(); loopCount++;
