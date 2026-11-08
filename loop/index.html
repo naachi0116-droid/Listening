@@ -621,8 +621,10 @@ function startVoice(quiet){
   let used = {}, qIdx = -1, qFrom = 0, qDeb = 0, lastQ = "", jDeb = 0;
   const submitQ = q=>{ q = q.trim(); if(!qMode || q.length < 2) return; qMode = false; clearTimeout(qTimer); clearTimeout(qDeb); askAI(q); };
   rec.onresult = e=>{
+    lastHeard = Date.now();
     for(let i=e.resultIndex; i<e.results.length; i++){
       const txt = e.results[i][0].transcript, fin = e.results[i].isFinal;
+      if(speaking && Date.now() - speakT > 60000) speaking = false;   // 読み上げが終わったのに残っていたら戻す
       if(speaking){ if(/止め|ストップ/.test(txt)) stopSpeak(); continue; }
       if(qMode){
         const q = (i===qIdx ? txt.slice(qFrom) : txt).replace(/^.*?質問(です|があります|して|したい)?/, "").replace(/^[、。,\s]+/, "");
@@ -636,20 +638,25 @@ function startVoice(quiet){
       if(!part.trim()) continue;
       if(/質問/.test(part)){ used[i] = txt.length; qIdx = i; qFrom = from + part.indexOf("質問"); lastQ = ""; startAsk(); continue; }
       const jn = jumpTarget(part);
-      if(jn){ clearTimeout(jDeb); jDeb = setTimeout(()=>{ used[i] = txt.length; const k = gotoIndex(jumpTarget(txt.slice(from)) || jn); voiceHint("🎙 区切り " + k + " へ"); toast("区切り " + k + " へ", 1500); }, 900); continue; }   // 数字は言い終わるのを少し待つ（40を4と取らないように）
+      if(jn){ clearTimeout(jDeb); jDeb = setTimeout(()=>{ used[i] = txt.length; const k = gotoIndex(jumpTarget(txt.slice(from)) || jn); voiceHint("🎙 区切り " + k + " へ"); toast("区切り " + k + " へ", 1500); fresh(); }, 900); continue; }   // 数字は言い終わるのを少し待つ（40を4と取らないように）
       const done = voiceCmd(part);
-      if(done){ used[i] = txt.length; voiceHint("🎙 " + done); toast(done, 1500); }
+      if(done){ used[i] = txt.length; voiceHint("🎙 " + done); toast(done, 1500); fresh(); }
     }
   };
   rec.onerror = e=>{
     if(e.error==="not-allowed" || e.error==="service-not-allowed"){ voiceOn = false; $("#bVoice").classList.remove("on"); const el = $("#voiceHint"); el.style.display = "block"; el.textContent = "🎙 マイクが止まっています。画面のどこかを1回タップしてください"; if(!quiet) toast("マイクが許可されていません", 3000); }
-    else if(e.error !== "no-speech" && e.error !== "aborted") voiceHint("⚠️ 音声認識のエラー：" + e.error);
+    else if(e.error !== "no-speech" && e.error !== "aborted") voiceHint("⚠️ 音声認識のエラー：" + e.error + "（🎙を2回押すとやり直します）");
   };
-  rec.onstart = ()=>{ used = {}; qIdx = -1; };
-  rec.onend = ()=>{ if(voiceOn) setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 300); };   // 切れても聞き続ける
+  rec.onstart = ()=>{ used = {}; qIdx = -1; lastHeard = Date.now(); if(!qMode && !speaking) voiceHint("🎙 聞いています（話すと 👂 に聞こえた言葉が出ます）"); };
+  // 命令を1つ実行したら聞き取りを一度リセット（英語の音が混ざって文が書き換わり、次の「次」を見落とすのを防ぐ）
+  const fresh = ()=>{ try{ rec.abort(); }catch(e){} };
+  rec.onend = ()=>{ if(voiceOn) setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 150); };   // 切れても聞き続ける
   try{ rec.start(); }catch(e){}
   voiceOn = true; $("#bVoice").classList.add("on"); voiceHint("🎙 聞いています：「次」「戻って」「区切り40」「遅くして」「0.5倍」「通しで」「ループ」「止めて」「質問」");
 }
+// 見張り：12秒以上なにも反応がなければ、聞き取りをやり直す
+let lastHeard = 0;
+setInterval(()=>{ if(voiceOn && rec && Date.now() - lastHeard > 12000){ lastHeard = Date.now(); try{ rec.abort(); }catch(e){} setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 400); } }, 3000);
 function stopVoice(){ voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); try{ rec && rec.stop(); }catch(e){} rec = null; }
 $("#bVoice").onclick = ()=>{ if(voiceOn){ stopVoice(); S.voice = false; } else { S.voice = true; startVoice(); } saveS(); };
 // ボタンを触らなくても聞くように：開いたとき・再生が始まったとき・画面に触れたときに自動でマイクを入れる
@@ -676,8 +683,9 @@ function startAsk(){
   voiceHint("❓ 質問をどうぞ（今の文について）"); toast("質問をどうぞ", 2500);
   clearTimeout(qTimer); qTimer = setTimeout(()=>{ if(qMode){ qMode = false; voiceHint("🎙 聞いています"); toast("質問が聞き取れませんでした"); } }, 15000);
 }
+let speakT = 0;
 async function speak(text){
-  speaking = true;
+  speaking = true; speakT = Date.now();
   try{
     const r = await fetch("https://api.openai.com/v1/audio/speech", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
       body:JSON.stringify({model:"gpt-4o-mini-tts", voice:"coral", input:text, instructions:"日本語の英語の先生として、明るく、はっきり、少し速めに話す。英語の部分は自然な英語の発音で。", response_format:"mp3"})});
