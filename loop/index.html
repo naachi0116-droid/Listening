@@ -628,8 +628,11 @@ function handleHeard(txt){
   if(speaking){ if(/止め|ストップ/.test(txt)) stopSpeak(); return true; }
   if(qMode){ const q = txt.replace(/^.*?質問(です|があります|して|したい)?/, "").replace(/^[、。,\s]+/, ""); voiceHint("❓ " + q); submitQ(q); return true; }
   voiceHint("👂 " + txt);
-  if(/質問/.test(txt)){ const rest = txt.replace(/^.*?質問(です|があります|して|したい)?[、。,\s]*/, "").trim();
+  const plain = txt.replace(/[\s、。,.!?！？「」]/g, "");
+  if((plain.match(/次|戻|止め|再生|遅く|速く|倍|区切り|通し|ループ|質問/g)||[]).length >= 3) return false;   // AIの聞き違い（命令の言葉の羅列）は無視
+  if(/^(えっと|あの|じゃあ)?(質問|しつもん)/.test(plain)){ const rest = txt.replace(/^.*?質問(です|があります|して|したい)?[、。,\s]*/, "").trim();
     startAsk(); if(rest.length >= 4) submitQ(rest); return true; }
+  if(plain.length > 14) return false;   // 長い文（流れている英語を拾ったものなど）は命令として扱わない
   const jn = jumpTarget(txt);
   if(jn){ const k = gotoIndex(jn); voiceHint("🎙 区切り " + k + " へ"); toast("区切り " + k + " へ", 1500); return true; }
   const done = voiceCmd(txt);
@@ -650,7 +653,6 @@ let TXM = "";
 async function transcribeCmd(blob){
   for(const m of (TXM ? [TXM] : ["gpt-4o-mini-transcribe", "gpt-transcribe"])){
     const fd = new FormData(); fd.append("file", blob, "cmd.wav"); fd.append("model", m); fd.append("language", "ja");
-    fd.append("prompt", "次。戻って。止めて。再生。遅くして。速くして。0.5倍。区切り40。通しで。ループ。質問。");
     try{ const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer "+S.key}, body:fd});
       if(r.ok){ TXM = m; return ((await r.json()).text||"").trim(); }
       if(r.status===401){ toast("APIキーが使えません"); return ""; } }catch(e){}
