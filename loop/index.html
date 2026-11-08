@@ -134,6 +134,8 @@
     <p class="small">同じサイトの英作文アプリやながらリスニングに入れたキーがあれば自動で使います。費用はスクリプト作成が音声1分あたり約0.6セント（16分で約10セント）、和訳はほぼ無料です。</p>
     <label>ループのあいだの間（秒・0＝止めずにすぐくり返す）</label><input id="sGap" type="number" step="0.1" min="0">
     <label>ループの回数（0＝止めるまで）</label><input id="sReps" type="number" step="1" min="0">
+    <label>車の画面に今の文を出す</label>
+    <select id="sCar"><option value="1">出す（曲名のところに英文、アーティストのところに和訳）</option><option value="0">出さない（教材の名前だけ）</option></select>
     <label>声で操作するときのマイク</label>
     <select id="sVmode"><option value="push">🎙・車の一時停止ボタン・「次」ボタンの2回押しで聞く（車・Bluetooth向け）</option><option value="always">ずっと聞く（イヤホン・スピーカー向け）</option></select>
     <p class="small">車のBluetoothでは、マイクを使っている間は音が出なくなります。「押したときだけ」にすると、押してから6秒だけ聞いて、言い終わるとすぐ音が戻ります。</p>
@@ -175,7 +177,7 @@ const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
-let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, jaNow:true, voice:true, vmode:"push", wakeOn:true, wake:"アプリ"}, LS.get("ll_settings", {}));
+let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, jaNow:true, carText:true, voice:true, vmode:"push", wakeOn:true, wake:"アプリ"}, LS.get("ll_settings", {}));
 if(S.wake === "ねえ") S.wake = "アプリ";   // 「ねえ」はAIが聞き流して文字にしないことが多いので変更
 if(!S.key) S.key = LS.get("nl.key", "") || (LS.get("eq_settings", {}).key || "");
 const saveS = ()=>LS.set("ll_settings", S);
@@ -393,7 +395,7 @@ async function update(){
     if(k >= 0 && t > sc[k].e + 0.6) k = -1;   // 文と文のすき間（音楽・広告の切れ目など）では何も出さない
     if(k !== lastScrIdx){
       lastScrIdx = k;
-      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; curK = k; showNowJa();
+      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; if(k !== curK) carText(k); curK = k; showNowJa();
       document.querySelectorAll(".sl.cur").forEach(x=>x.classList.remove("cur"));
       const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); followScript(el); }
     }
@@ -897,8 +899,16 @@ function setMedia(){
   }catch(e){}
 }
 
+// 車の画面（メーターやオーディオ画面）に今の英文と和訳を出す：曲名＝英文、アーティスト＝和訳として送る
+function carText(k){
+  if(!("mediaSession" in navigator) || !cur || S.carText === false) return;
+  const sc = cur.script, x = sc && sc[k];
+  try{ navigator.mediaSession.metadata = new MediaMetadata(x ? {title:x.en, artist:x.ja || cur.title, album:cur.title} : {title:cur.title, artist:"ループリスニング", album:cur.tag||""}); }catch(e){}
+}
+
 /* ---------- 設定 ---------- */
-function loadSetUI(){ $("#sVmode").value = S.vmode || "push"; $("#sWakeOn").value = S.wakeOn ? "1" : "0"; $("#sWake").value = S.wake || "アプリ"; $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
+function loadSetUI(){ $("#sCar").value = S.carText === false ? "0" : "1"; $("#sVmode").value = S.vmode || "push"; $("#sWakeOn").value = S.wakeOn ? "1" : "0"; $("#sWake").value = S.wake || "アプリ"; $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
+$("#sCar").onchange = ()=>{ S.carText = $("#sCar").value === "1"; saveS(); carText(curK); toast("保存しました"); };
 $("#sVmode").onchange = ()=>{ S.vmode = $("#sVmode").value; saveS(); if(S.vmode === "push" && voiceOn) stopVoice(); toast("保存しました"); };
 ["#sWakeOn","#sWake"].forEach(id=>$(id).onchange = ()=>{ S.wakeOn = $("#sWakeOn").value==="1"; S.wake = $("#sWake").value.trim() || "アプリ"; saveS(); toast("保存しました"); });
 ["#sKey","#sGap","#sReps"].forEach(id=>$(id).onchange = ()=>{ S.key = $("#sKey").value.trim(); S.gap = Math.max(0, +$("#sGap").value||0); S.reps = Math.max(0, Math.round(+$("#sReps").value||0)); saveS(); toast("保存しました"); });
