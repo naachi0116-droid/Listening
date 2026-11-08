@@ -135,7 +135,7 @@
     <label>ループのあいだの間（秒・0＝止めずにすぐくり返す）</label><input id="sGap" type="number" step="0.1" min="0">
     <label>ループの回数（0＝止めるまで）</label><input id="sReps" type="number" step="1" min="0">
     <label>声で操作するときのマイク</label>
-    <select id="sVmode"><option value="push">🎙 か車の一時停止ボタンを押したときだけ聞く（車・Bluetooth向け）</option><option value="always">ずっと聞く（イヤホン・スピーカー向け）</option></select>
+    <select id="sVmode"><option value="push">🎙・車の一時停止ボタン・「次」ボタンの2回押しで聞く（車・Bluetooth向け）</option><option value="always">ずっと聞く（イヤホン・スピーカー向け）</option></select>
     <p class="small">車のBluetoothでは、マイクを使っている間は音が出なくなります。「押したときだけ」にすると、押してから6秒だけ聞いて、言い終わるとすぐ音が戻ります。</p>
     <label>シャドーイングしても反応しにくくする</label>
     <div class="row"><select id="sWakeOn" style="flex:0 0 auto"><option value="1">する</option><option value="0">しない</option></select><input id="sWake" placeholder="アプリ"></div>
@@ -755,7 +755,7 @@ const aiMic = {
 };
 
 /* --- ボタンを押したときだけ聞く（車向け）：マイクを使う間はBluetoothの音が止まるので、短い間だけ聞いてすぐ戻す --- */
-let pushOn = false, pushTimer = 0, pushPlaying = false, stopAsked = false;
+let nextTapT = 0, pushOn = false, pushTimer = 0, pushPlaying = false, stopAsked = false;
 async function listenOnce(){
   if(!S.key){ toast("音声操作には設定でOpenAI APIキーを入れてください", 3000); return; }
   if(pushOn){ endPush(false); return; }   // 聞いている最中にもう一度押したらやめる
@@ -886,7 +886,13 @@ function setMedia(){
     const h = (a, f)=>{ try{ navigator.mediaSession.setActionHandler(a, f); }catch(e){} };
     h("play", ()=>{ logEv("車/イヤホン：再生ボタン"); au.play(); }); h("pause", ()=>{ logEv("車/イヤホン：一時停止ボタン"); if(S.vmode === "push" && S.key){ listenOnce(); } else userPause(); });
     h("stop", ()=>{ logEv("車/イヤホン：停止ボタン"); userPause(); });
-    h("previoustrack", ()=>gotoSeg(-1)); h("nexttrack", ()=>gotoSeg(+1));
+    h("previoustrack", ()=>{ logEv("車/イヤホン：前ボタン"); gotoSeg(-1); });
+    // 「次」ボタンを素早く2回押すと音声操作（ハンドルに一時停止ボタンがない車向け）。1回なら次の区切りへ
+    h("nexttrack", ()=>{ logEv("車/イヤホン：次ボタン");
+      if(S.vmode === "push" && S.key){
+        if(nextTapT){ clearTimeout(nextTapT); nextTapT = 0; listenOnce(); return; }
+        nextTapT = setTimeout(()=>{ nextTapT = 0; gotoSeg(+1); }, 550);
+      } else gotoSeg(+1); });
     h("seekbackward", ()=>seek(au.currentTime-5)); h("seekforward", ()=>seek(au.currentTime+5));
   }catch(e){}
 }
