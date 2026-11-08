@@ -35,9 +35,9 @@
   .time{display:flex;justify-content:space-between;font-size:14px;color:var(--sub);margin-top:4px}
   #segInfo{font-size:14px;color:var(--mk);text-align:center;min-height:21px}
   .grid{display:grid;gap:6px;margin-top:8px}
-  .g5{grid-template-columns:repeat(5,1fr)}.g2{grid-template-columns:repeat(2,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .g5{grid-template-columns:repeat(5,1fr)}.g2{grid-template-columns:repeat(2,1fr)}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}
   .grid .btn{padding:14px 2px;font-size:17px}
-  #nowEn{font-size:20px;font-weight:600;min-height:30px;margin-top:6px}
+  #nowEn{cursor:pointer;font-size:20px;font-weight:600;min-height:30px;margin-top:6px}
   #nowJa{font-size:15px;color:var(--sub);min-height:22px}
   .scr{max-height:46vh;overflow:auto;margin-top:6px;position:relative}
   .para{margin:0 0 14px;font-size:17px;line-height:1.75}
@@ -52,6 +52,7 @@
 <header>
   <button data-tab="lib" class="on">ライブラリ</button>
   <button data-tab="play">再生</button>
+  <button data-tab="qa">質問</button>
   <button data-tab="set">設定</button>
 </header>
 <main>
@@ -91,13 +92,19 @@
       <button class="btn" id="bFwdS">+0.5秒</button>
     </div>
     <div class="grid g2">
-      <button class="btn" id="bLoop">🔁 ループ</button>
-      <button class="btn" id="bRate">1.00x</button>
+      <button class="btn" id="bLoop">🔁 区切りループ</button>
+      <button class="btn" id="bAll">🔂 通しリピート</button>
     </div>
+    <div class="grid g3">
+      <button class="btn" id="bRate">1.00x</button>
+      <button class="btn" id="bVoice">🎙 音声操作</button>
+      <button class="btn" id="bAsk">❓ 質問</button>
+    </div>
+    <div id="voiceHint" class="small" style="display:none;text-align:center;color:var(--mk);margin-top:4px"></div>
     <div class="grid g4">
       <button class="btn" id="bSlow">🐢 −0.1</button>
       <button class="btn" id="bFast">🐇 +0.1</button>
-      <button class="btn" id="bJa">和訳 表示</button>
+      <button class="btn" id="bJa">全文和訳 非表示</button>
       <button class="btn" id="bScr">📝 スクリプト</button>
     </div>
     <p class="small" style="margin-top:8px">聞きながら文の切れ目で「＋区切り」を押すと、そこで区切れます。⏮⏭で前後の区切りへ、🔁で今の区切りをくり返します。下の細かい波形をタップすると、その位置に移動します。車のハンドルやイヤホンの「前/次」ボタンでも区切りを移動できます。</p>
@@ -107,6 +114,16 @@
     <div class="bar" id="prog" style="display:none"><div></div></div>
     <div class="scr" id="scr"></div>
   </div>
+</section>
+
+<!-- ===== 質問履歴 ===== -->
+<section id="qa">
+  <div class="card">
+    <b>AIに質問</b>
+    <p class="small">再生中に「質問」と言うか ❓ を押して、そのまま質問を話してください（例：「start by ってどういう意味？」）。今の文について答えを読み上げ、ここに残します。</p>
+    <div class="row"><input id="qText" placeholder="文字で質問する（今の文について）"><button class="btn pri" id="bQSend" style="flex:0 0 auto">送る</button></div>
+  </div>
+  <div id="qaList"></div>
 </section>
 
 <!-- ===== 設定 ===== -->
@@ -138,7 +155,7 @@ const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
-let S = Object.assign({loop:true, key:"", gap:0, reps:0, rate:1.0, showJa:true}, LS.get("ll_settings", {}));
+let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, voice:true}, LS.get("ll_settings", {}));
 if(!S.key) S.key = LS.get("nl.key", "") || (LS.get("eq_settings", {}).key || "");
 const saveS = ()=>LS.set("ll_settings", S);
 if(!LS.get("ll_v2", false)){ S.gap = 0; LS.set("ll_v2", true); saveS(); }
@@ -225,6 +242,32 @@ const au = $("#au");
 let loopR = null, cur = null, url = null, loopOn = false, loopCount = 0, peaks = null, savingT = null;
 function segs(){ const d = cur ? (cur.duration || au.duration || 0) : 0; const m = (cur && cur.markers || []).filter(x=>x>0.05 && x<d-0.05); return [0, ...m, d]; }
 function segIndex(t){ const b = segs(); for(let i=b.length-2;i>=0;i--) if(t >= b[i]-0.02) return i; return 0; }
+// 音の大きさ（0.05秒ごと）から、区切りの頭と終わりの無音を除いた範囲を出す
+let env = null, envThr = 0;
+function setEnv(e){ env = e || null; envThr = 0; if(!env || !env.length) return; const s = [...env].sort((a,b)=>a-b); const lo = s[Math.floor(s.length*0.1)], hi = s[Math.floor(s.length*0.9)]; envThr = lo + (hi-lo)*0.12; }
+const silentAt = t=>{ if(!env) return false; const k = Math.floor(t*20); return k>=0 && k<env.length && env[k] <= envThr; };
+function loopRangeFor(i){
+  const [s, e] = segRange(i); if(!env) return [s, e];
+  let a = s; while(a < e-0.3 && silentAt(a)) a += 0.05;
+  let b = e; while(b > a+0.3 && silentAt(b-0.05)) b -= 0.05;
+  if(b - a < 0.4) return [s, e];
+  return [Math.max(s, a-0.15), Math.min(e, b+0.3)];
+}
+function envFrom(pcm, rate){ const fr = Math.round(rate*0.05), n = Math.floor(pcm.length/fr), out = new Array(n); let mx = 1e-9; const r = new Float32Array(n);
+  for(let f=0; f<n; f++){ let s = 0; const st = f*fr; for(let i=0;i<fr;i+=2){ const v = pcm[st+i]; s += v*v; } r[f] = Math.sqrt(s/(fr/2)); if(r[f]>mx) mx = r[f]; }
+  for(let f=0; f<n; f++) out[f] = Math.round(r[f]/mx*1000); return out; }
+// 長い無音（1.2秒以上）の真ん中に区切りを足す（ファイルごとに1回だけ）
+function splitAtSilences(m){
+  if(!env || m.silSplit) return 0; let added = 0, run = 0;
+  const d = m.duration || au.duration || env.length/20;
+  for(let k=0; k<=env.length; k++){
+    if(k<env.length && env[k] <= envThr){ run++; continue; }
+    if(run >= 24){ const st = (k-run)/20, en = k/20, mid = (st+en)/2;
+      if(st > 0.5 && en < d-0.5 && !m.markers.some(x=>Math.abs(x-mid) < (en-st)/2 + 0.3)){ m.markers.push(Math.round(mid*100)/100); added++; } }
+    run = 0;
+  }
+  m.markers.sort((a,b)=>a-b); m.silSplit = true; return added;
+}
 function segRange(i){ const b = segs(); i = Math.max(0, Math.min(b.length-2, i)); return [b[i], b[i+1], i]; }
 async function openItem(id){
   const m = metas.find(x=>x.id===id) || await DB.get("meta", id); if(!m) return;
@@ -235,9 +278,12 @@ async function openItem(id){
   au.src = url; au.playbackRate = S.rate; au.preservesPitch = true;
   au.onloadedmetadata = ()=>{ if(!cur.duration || Math.abs(cur.duration-au.duration)>1) cur.duration = au.duration; au.currentTime = Math.min(cur.lastPos||0, Math.max(0, au.duration-1)); draw(); };
   $("#title").textContent = (/^video/.test(m.type)?"🎬 ":"🎧 ") + m.title;
-  loopOn = S.loop !== false; loopR = null; $("#bLoop").classList.toggle("on", loopOn); peaks = m.peaks || null;
+  loopOn = S.loop !== false && !S.all; loopR = null; $("#bLoop").classList.toggle("on", loopOn); $("#bAll").classList.toggle("on", !!S.all); peaks = m.peaks || null;
   renderScript(); tab("play"); setMedia(); DB.put("meta", m);
-  if(!peaks) buildPeaks(blob).catch(()=>{});
+  setEnv(m.env);
+  if(!m.markers.length && m.script && m.script.length){ m.markers = m.script.map(x=>x.s).filter(x=>x>0.3); saveMeta(); toast("スクリプトの文ごとに区切りを付けました"); }
+  if(!peaks || !m.env) buildPeaks(blob).catch(()=>{});
+  else if(!m.silSplit){ const n = splitAtSilences(m); if(n){ toast("長い無音に区切りを " + n + " か所足しました"); saveMeta(); } }
 }
 function saveMeta(){ if(!cur) return; cur.lastPos = au.currentTime||0; DB.put("meta", cur).catch(()=>{}); }
 function setRate(r){ S.rate = Math.min(2, Math.max(0.5, Math.round(r*100)/100)); au.playbackRate = S.rate; au.preservesPitch = true; $("#bRate").textContent = S.rate.toFixed(2)+"x"; saveS(); }
@@ -246,31 +292,37 @@ function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); 
 $("#bPlay").onclick = togglePlay;
 au.onplay = ()=>{ $("#bPlay").textContent = "⏸"; tick(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "playing"; };
 au.onpause = ()=>{ $("#bPlay").textContent = "▶"; saveMeta(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "paused"; };
-function seek(t){ if(!cur) return; au.currentTime = Math.max(0, Math.min((cur.duration||au.duration||0)-0.05, t)); loopCount = 0; if(loopOn){ const r = segRange(segIndex(au.currentTime + 0.03)); loopR = [r[0], r[1]]; } draw(); }
+function seek(t){ if(!cur) return; au.currentTime = Math.max(0, Math.min((cur.duration||au.duration||0)-0.05, t)); loopCount = 0; if(loopOn){ loopR = loopRangeFor(segIndex(au.currentTime + 0.03)); } draw(); }
 $("#bBack").onclick = ()=>seek(au.currentTime-5); $("#bFwd").onclick = ()=>seek(au.currentTime+5);
 $("#bBackS").onclick = ()=>seek(au.currentTime-0.5); $("#bFwdS").onclick = ()=>seek(au.currentTime+0.5);
-function gotoSeg(d){ if(!cur) return; const i = segIndex(au.currentTime); const [s] = segRange(i); let j = i + d;
-  if(d<0 && au.currentTime - s > 1.5) j = i;   // 区切りの途中なら、まずその頭へ
-  const [s2] = segRange(j); seek(s2); if(au.paused) au.play().catch(()=>{}); }
+function gotoSeg(d, strict){ if(!cur) return; const i = segIndex(au.currentTime); const [s] = segRange(i); let j = i + d;
+  if(d<0 && !strict && au.currentTime - s > 1.5) j = i;   // 区切りの途中なら、まずその頭へ
+  seek(loopRangeFor(j)[0]); if(au.paused) au.play().catch(()=>{}); }
 $("#bPrev").onclick = ()=>gotoSeg(-1); $("#bNext").onclick = ()=>gotoSeg(+1);
-$("#bLoop").onclick = ()=>{ loopOn = !loopOn; S.loop = loopOn; saveS(); loopCount = 0; if(loopOn){ const r = segRange(segIndex(au.currentTime)); loopR = [r[0], r[1]]; } $("#bLoop").classList.toggle("on", loopOn); toast(loopOn ? "今の区切りをくり返します" : "ループを止めました"); draw(); };
+function setAll(on){ S.all = on; if(on && loopOn){ loopOn = false; S.loop = false; loopR = null; $("#bLoop").classList.remove("on"); } saveS(); $("#bAll").classList.toggle("on", S.all); draw(); }
+$("#bAll").onclick = ()=>{ setAll(!S.all); toast(S.all ? "最後まで通して読み、最初からくり返します" : "通しリピートを止めました"); if(S.all && au.paused && cur) au.play().catch(()=>{}); };
+$("#bLoop").onclick = ()=>{ loopOn = !loopOn; S.loop = loopOn; if(loopOn && S.all){ S.all = false; $("#bAll").classList.remove("on"); } saveS(); loopCount = 0; if(loopOn){ loopR = loopRangeFor(segIndex(au.currentTime)); } $("#bLoop").classList.toggle("on", loopOn); toast(loopOn ? "今の区切りをくり返します" : "ループを止めました"); draw(); };
 $("#bMark").onclick = ()=>{
   if(!cur) return; const t = Math.max(0, au.currentTime - 0.15);
   if(cur.markers.some(x=>Math.abs(x-t)<0.4)){ toast("近くに区切りがあります"); return; }
-  cur.markers.push(t); cur.markers.sort((a,b)=>a-b); if(loopOn){ const r = segRange(segIndex(t - 0.05)); loopR = [r[0], r[1]]; } saveMeta(); draw(); toast("区切り " + fmt(t));
+  cur.markers.push(t); cur.markers.sort((a,b)=>a-b); if(loopOn){ loopR = loopRangeFor(segIndex(t - 0.05)); } saveMeta(); draw(); toast("区切り " + fmt(t));
 };
 $("#bUnmark").onclick = ()=>{
   if(!cur || !cur.markers.length) return; const t = au.currentTime;
   let k = -1, best = 1e9; cur.markers.forEach((x,i)=>{ const d = Math.abs(x-t); if(d<best){ best = d; k = i; } });
-  if(k<0) return; const x = cur.markers.splice(k,1)[0]; if(loopOn){ const r = segRange(segIndex(au.currentTime)); loopR = [r[0], r[1]]; } saveMeta(); draw(); toast("区切り " + fmt(x) + " を消しました");
+  if(k<0) return; const x = cur.markers.splice(k,1)[0]; if(loopOn){ loopR = loopRangeFor(segIndex(au.currentTime)); } saveMeta(); draw(); toast("区切り " + fmt(x) + " を消しました");
 };
-$("#bJa").onclick = ()=>{ S.showJa = !S.showJa; saveS(); $("#bJa").textContent = S.showJa ? "和訳 表示" : "和訳 非表示"; renderScript(); update(); };
+$("#bJa").onclick = ()=>{ S.jaAll = !S.jaAll; saveS(); $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; renderScript(); update(); };
+// 英文を押すと和訳を出す。もう一度押すと消す（文が変わると、また隠す）
+let jaOpen = false, curK = -1;
+function showNowJa(){ const sc = cur && cur.script; $("#nowJa").textContent = (jaOpen && sc && sc[curK]) ? (sc[curK].ja || "（和訳なし）") : ""; }
+$("#nowEn").onclick = ()=>{ if(curK < 0) return; jaOpen = !jaOpen; showNowJa(); };
 $("#bScr").onclick = ()=>makeScript();
 
 /* 再生位置の監視（ループ・表示） */
 let ticking = false, waiting = false;
 function tick(){ if(ticking) return; ticking = true; const f = ()=>{ if(au.paused){ ticking = false; update(); return; } update(); requestAnimationFrame(f); }; requestAnimationFrame(f); }
-let lastScrIdx = -1, userScrollT = 0;
+let lastScrIdx = -1, userScrollT = 0, lastSegI = -1;
 function followScript(el){
   if(Date.now() - userScrollT < 4000) return;   // 自分でスクロールした直後は動かさない
   const box = $("#scr"); box._auto = true;
@@ -282,8 +334,9 @@ async function update(){
   const t = au.currentTime, d = cur.duration || au.duration || 0;
   $("#tCur").textContent = fmt(t); $("#tDur").textContent = fmt(d);
   const i = segIndex(t), [s, e] = segRange(i), n = segs().length-1;
+  if(i !== lastSegI){ lastSegI = i; if(S.rate !== 1) setRate(1); }   // 新しい区切りに入ったら、まず1倍で
   $("#segInfo").textContent = `区切り ${i+1}/${n}` + (loopOn ? `　🔁${S.reps ? (loopCount+1)+"/"+S.reps : (loopCount+1)+"回目"}` : "");
-  if(loopOn && !loopR){ const r = segRange(i); loopR = [r[0], r[1]]; }
+  if(loopOn && !loopR) loopR = loopRangeFor(i);
   const [ls, le] = loopOn ? loopR : [s, e];
   if(loopOn && !waiting && !au.paused && t >= le - 0.03 && le - ls > 0.3){
     if(S.reps && loopCount+1 >= S.reps){ loopCount = 0; loopOn = false; $("#bLoop").classList.remove("on"); }
@@ -299,7 +352,7 @@ async function update(){
     if(k >= 0 && t > sc[k].e + 0.6) k = -1;   // 文と文のすき間（音楽・広告の切れ目など）では何も出さない
     if(k !== lastScrIdx){
       lastScrIdx = k;
-      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; $("#nowJa").textContent = (k>=0 && S.showJa) ? (sc[k].ja||"") : "";
+      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; curK = k; jaOpen = false; showNowJa();
       document.querySelectorAll(".sl.cur").forEach(x=>x.classList.remove("cur"));
       const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); followScript(el); }
     }
@@ -308,7 +361,8 @@ async function update(){
   clearTimeout(savingT); savingT = setTimeout(saveMeta, 3000);
 }
 au.ontimeupdate = ()=>{ if(au.paused) update(); };
-au.onended = ()=>{ if(loopOn){ const [s] = segRange(segIndex(au.duration-0.1)); loopCount++; setTimeout(()=>{ au.currentTime = s; au.play().catch(()=>{}); }, Math.max(0,S.gap)*1000); } };
+au.onended = ()=>{ if(S.all && !loopOn){ loopCount = 0; setTimeout(()=>{ au.currentTime = 0; au.play().catch(()=>{}); }, 800); return; }
+  if(loopOn){ const [s] = segRange(segIndex(au.duration-0.1)); loopCount++; setTimeout(()=>{ au.currentTime = s; au.play().catch(()=>{}); }, Math.max(0,S.gap)*1000); } };
 
 /* ---------- 波形 ---------- */
 const cw = $("#wave"), cz = $("#zoom");
@@ -383,7 +437,8 @@ function peaksFrom(pcm, bins){ const n = pcm.length, step = Math.max(1, Math.flo
   return p.map(v=>Math.round(v/mx*100)/100); }
 async function buildPeaks(blob){
   if(cur && cur.duration > 90*60) return;
-  const {data} = await decode16k(blob); peaks = peaksFrom(data, 4000); if(cur){ cur.peaks = peaks; saveMeta(); } draw();
+  const me = cur; const {data, rate} = await decode16k(blob); peaks = peaksFrom(data, 4000);
+  if(me){ me.peaks = peaks; me.env = envFrom(data, rate); if(cur===me){ setEnv(me.env); const n = splitAtSilences(me); if(n) toast("長い無音に区切りを " + n + " か所足しました"); loopR = null; } saveMeta(); } draw();
 }
 function wavChunk(pcm, rate, st, en){
   const n = en-st, b = new ArrayBuffer(44+n*2), v = new DataView(b), w = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
@@ -465,6 +520,7 @@ async function makeScript(){
     const blob = await DB.get("blobs", me.id);
     const {data, rate} = await decode16k(blob);
     if(!me.peaks){ peaks = peaksFrom(data, 4000); me.peaks = peaks; }
+    if(!me.env){ me.env = envFrom(data, rate); if(cur===me) setEnv(me.env); }
     const pts = splitPoints(data, rate), jobs = [];
     for(let i=0;i<pts.length-1;i++) jobs.push([pts[i], pts[i+1]]);
     const results = new Array(jobs.length); let done = 0, next = 0;
@@ -498,7 +554,7 @@ async function makeScript(){
     const sc = splitSentences(all);
     await translate(sc);
     me.script = sc;
-    if(!me.markers.length) me.markers = sc.map(x=>x.s).filter(x=>x>0.3);
+    if(!me.markers.length){ me.markers = sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me) splitAtSilences(me); }
     await DB.put("meta", me);
     if(cur===me){ renderScript(); draw(); }
     setProg(null, sc.length + "文");
@@ -516,11 +572,137 @@ function renderScript(){
   const paras = []; let p = [];
   sc.forEach((x,i)=>{ p.push(i); const nx = sc[i+1]; if(!nx || p.length >= 6 || nx.s - x.e > 1.5){ paras.push(p); p = []; } });
   $("#scr").innerHTML = paras.map(ix=>'<p class="para">' + ix.map(i=>`<span class="sl" data-i="${i}">${esc(sc[i].en)}</span>`).join(" ") + "</p>"
-      + (S.showJa ? '<div class="pja">' + ix.map(i=>esc(sc[i].ja||"")).join("") + "</div>" : "")).join("");
+      + (S.jaAll ? '<div class="pja">' + ix.map(i=>esc(sc[i].ja||"")).join("") + "</div>" : "")).join("");
 }
 $("#scr").addEventListener("wheel", ()=>{ userScrollT = Date.now(); }, {passive:true});
 $("#scr").addEventListener("touchmove", ()=>{ userScrollT = Date.now(); }, {passive:true});
-$("#scr").onclick = e=>{ const r = e.target.closest(".sl"); if(!r || !cur) return; const x = cur.script[+r.dataset.i]; seek(x.s + 0.01); au.play().catch(()=>{}); };
+$("#scr").onclick = e=>{ const r = e.target.closest(".sl"); if(!r || !cur) return; const i = +r.dataset.i, x = cur.script[i];
+  if(i === curK){ jaOpen = !jaOpen; showNowJa(); return; }   // 今の文をもう一度押すと和訳
+  seek(x.s + 0.01); au.play().catch(()=>{}); };
+
+/* ---------- 音声で操作 ---------- */
+let rec = null, voiceOn = false;
+function jaNum(s){
+  s = s.replace(/[０-９．]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  const k = {"ゼロ":0,"れい":0,"零":0,"一":1,"いち":1,"二":2,"三":3,"さん":3,"四":4,"よん":4,"五":5,"六":6,"ろく":6,"七":7,"なな":7,"八":8,"はち":8,"九":9,"きゅう":9};
+  return s.replace(/(ゼロ|れい|零|一|いち|二|三|さん|四|よん|五|六|ろく|七|なな|八|はち|九|きゅう)/g, m=>k[m]).replace(/(\d)\s*(点|てん)\s*(\d)/g, "$1.$3");
+}
+function voiceCmd(raw){
+  const t = jaNum(raw.replace(/\s/g, ""));
+  let m;
+  if((m = t.match(/(\d(?:\.\d+)?)倍/))){ const r = +m[1]; if(r >= 0.5 && r <= 2){ setRate(r); return r.toFixed(2)+"倍"; } }
+  if(/半分/.test(t)){ setRate(0.5); return "0.50倍"; }
+  if(/遅く|ゆっくり|おそく/.test(t)){ setRate(S.rate-0.1); return "遅く "+S.rate.toFixed(2)+"倍"; }
+  if(/速く|早く|はやく/.test(t)){ setRate(S.rate+0.1); return "速く "+S.rate.toFixed(2)+"倍"; }
+  if(/通し|とおし|全部|ぜんぶ/.test(t)){ setAll(true); if(au.paused) au.play().catch(()=>{}); return "通しリピート"; }
+  if(/ループ|繰り返|くりかえ/.test(t)){ if(!loopOn) $("#bLoop").click(); return "区切りループ"; }
+  if(/戻|もど|前へ|前に|まえ/.test(t)){ gotoSeg(-1, true); return "1つ前の区切り"; }
+  if(/次|つぎ|ネクスト/.test(t)){ gotoSeg(+1); return "次の区切り"; }
+  if(/止め|とめ|ストップ|停止/.test(t)){ au.pause(); return "停止"; }
+  if(/再生|スタート|始め|はじめ/.test(t)){ au.play().catch(()=>{}); return "再生"; }
+  return "";
+}
+function voiceHint(s){ const el = $("#voiceHint"); el.style.display = voiceOn ? "block" : "none"; el.textContent = s; }
+function startVoice(quiet){
+  if(voiceOn) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ if(quiet) return; toast("このブラウザは音声操作に対応していません（Chrome か Safari で開いてください）", 4000); return; }
+  rec = new SR(); rec.lang = "ja-JP"; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = e=>{
+    for(let i=e.resultIndex; i<e.results.length; i++){
+      if(!e.results[i].isFinal) continue;
+      const txt = e.results[i][0].transcript;
+      if(speaking){ if(/止め|ストップ/.test(txt)) stopSpeak(); continue; }
+      if(qMode){ if(txt.trim().length < 2) continue; qMode = false; clearTimeout(qTimer); askAI(txt.trim()); continue; }
+      if(/質問/.test(txt)){ const rest = txt.replace(/.*?質問(です|があります|して|したい)?[、。,\s]*/, "").trim();
+        if(rest.length >= 4 && S.key && cur){ au.pause(); askAI(rest); } else startAsk(); continue; }
+      const done = voiceCmd(txt);
+      if(done){ voiceHint("🎙 " + done); toast(done, 1500); }
+    }
+  };
+  rec.onerror = e=>{ if(e.error==="not-allowed" || e.error==="service-not-allowed"){ voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); if(!quiet) toast("マイクが許可されていません", 3000); } };
+  rec.onend = ()=>{ if(voiceOn) setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 300); };   // 切れても聞き続ける
+  try{ rec.start(); }catch(e){}
+  voiceOn = true; $("#bVoice").classList.add("on"); voiceHint("🎙 聞いています：「次」「戻って」「遅くして」「0.5倍」「通しで」「ループ」「止めて」「質問」");
+}
+function stopVoice(){ voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); try{ rec && rec.stop(); }catch(e){} rec = null; }
+$("#bVoice").onclick = ()=>{ if(voiceOn){ stopVoice(); S.voice = false; } else { S.voice = true; startVoice(); } saveS(); };
+// ボタンを触らなくても聞くように：開いたとき・再生が始まったとき・画面に触れたときに自動でマイクを入れる
+const autoVoice = ()=>{ if(S.voice && !voiceOn) startVoice(true); };
+autoVoice();
+au.addEventListener("play", autoVoice);
+document.addEventListener("pointerdown", autoVoice, true);
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") autoVoice(); });
+
+/* ---------- AIに質問 ---------- */
+let qMode = false, qTimer = 0, speaking = false, ttsAu = null;
+const QA = { all(){ return LS.get("ll_qa", []); }, save(a){ LS.set("ll_qa", a.slice(0, 300)); } };
+function curSentence(){
+  const sc = cur && cur.script, t = au.currentTime;
+  if(sc && sc.length){ let k = -1; for(let j=0;j<sc.length;j++){ if(sc[j].s <= t+0.3) k = j; else break; } if(k < 0) k = 0;
+    return {en: sc[k].en, before: (sc[k-1]||{}).en || "", after: (sc[k+1]||{}).en || ""}; }
+  return {en:"", before:"", after:""};
+}
+function beep(){ try{ const C = window.AudioContext||window.webkitAudioContext, c = new C(), o = c.createOscillator(), g = c.createGain(); o.frequency.value = 880; g.gain.value = 0.15; o.connect(g); g.connect(c.destination); o.start(); setTimeout(()=>{ o.stop(); c.close(); }, 180); }catch(e){} }
+function startAsk(){
+  if(!cur){ toast("先にファイルを選んでください"); return; }
+  if(!S.key){ toast("設定でOpenAI APIキーを入れてください", 3000); return; }
+  au.pause(); qMode = true; if(!voiceOn) startVoice(); beep();
+  voiceHint("❓ 質問をどうぞ（今の文について）"); toast("質問をどうぞ", 2500);
+  clearTimeout(qTimer); qTimer = setTimeout(()=>{ if(qMode){ qMode = false; voiceHint("🎙 聞いています"); toast("質問が聞き取れませんでした"); } }, 15000);
+}
+async function speak(text){
+  speaking = true;
+  try{
+    const r = await fetch("https://api.openai.com/v1/audio/speech", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
+      body:JSON.stringify({model:"gpt-4o-mini-tts", voice:"coral", input:text, instructions:"日本語の英語の先生として、明るく、はっきり、少し速めに話す。英語の部分は自然な英語の発音で。", response_format:"mp3"})});
+    if(!r.ok) throw new Error("tts");
+    const url = URL.createObjectURL(await r.blob()); ttsAu = new Audio(url);
+    await new Promise(res=>{ ttsAu.onended = res; ttsAu.onerror = res; ttsAu.play().catch(res); });
+    URL.revokeObjectURL(url);
+  }catch(e){
+    await new Promise(res=>{ try{ const u = new SpeechSynthesisUtterance(text); u.lang = "ja-JP"; u.onend = res; u.onerror = res; speechSynthesis.speak(u); }catch(_){ res(); } });
+  }
+  ttsAu = null; await sleep(500); speaking = false;
+}
+function stopSpeak(){ try{ ttsAu && ttsAu.pause(); }catch(e){} try{ speechSynthesis.cancel(); }catch(e){} if(ttsAu && ttsAu.onended) ttsAu.onended(); }
+async function askAI(q, opts){
+  opts = opts || {}; const me = cur, t = au.currentTime, s = curSentence();
+  voiceHint("🤔 考えています…"); toast("考えています…", 4000);
+  let a = "";
+  try{
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
+      body:JSON.stringify({model:"gpt-4.1-mini", temperature:0.3, messages:[
+        {role:"system", content:"あなたは日本人の大人に英語を教える先生です。生徒は車を運転しながらリスニング教材を聞いていて、答えは音声で読み上げます。今聞いている英文について質問に日本語で答えてください。3〜5文で短く。記号や箇条書きは使わず、話し言葉で。使い方の質問には、意味・使い方・短い例文を1つ（英語の後に日本語訳）を入れてください。質問の英語部分は音声認識でカタカナになっていることがあるので、英文から推測してください。"},
+        {role:"user", content:`今の英文：${s.en || "（スクリプトなし）"}\n前の文：${s.before}\n次の文：${s.after}\n\n質問：${q}`}]})});
+    if(!r.ok) throw new Error(r.status===401 ? "APIキーが使えません" : "AIにつながりませんでした");
+    const j = await r.json(); a = j.choices[0].message.content.trim();
+  }catch(e){ voiceHint(voiceOn ? "🎙 聞いています" : ""); toast(e.message || "答えを作れませんでした", 3500); return; }
+  const all = QA.all(); all.unshift({at:Date.now(), id: me && me.id, title: me ? me.title : "", t, en:s.en, q, a}); QA.save(all); renderQA();
+  voiceHint("🔊 " + a);
+  await speak(a);
+  voiceHint(voiceOn ? "🎙 聞いています：「次」「戻って」「遅くして」「質問」" : "");
+  if(opts.resume !== false && cur===me){ const [ls] = loopOn ? (loopR || loopRangeFor(segIndex(t))) : [t]; seek(ls); au.play().catch(()=>{}); }
+}
+function renderQA(){
+  const all = QA.all(), el = $("#qaList");
+  if(!all.length){ el.innerHTML = '<div class="card small">まだ質問はありません。</div>'; return; }
+  el.innerHTML = all.map((x,i)=>`<div class="card">
+    <div class="small">${new Date(x.at).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}　${esc(x.title)} ${x.id?`<a href="#" data-qgo="${i}">▶ ${fmt(x.t)}</a>`:""}</div>
+    ${x.en?`<div style="font-weight:600;margin-top:4px">${esc(x.en)}</div>`:""}
+    <div style="margin-top:6px;color:var(--ac)">Q. ${esc(x.q)}</div>
+    <div style="margin-top:4px;line-height:1.7">${esc(x.a)}</div>
+    <div class="ops" style="margin-top:6px"><button data-qplay="${i}">🔊 もう一度聞く</button> <button data-qdel="${i}">🗑</button></div></div>`).join("");
+}
+$("#qaList").onclick = async e=>{
+  const all = QA.all(), b = e.target.closest("[data-qplay],[data-qdel],[data-qgo]"); if(!b) return; e.preventDefault();
+  if(b.dataset.qplay){ if(speaking) stopSpeak(); else speak(all[+b.dataset.qplay].a); }
+  else if(b.dataset.qdel){ all.splice(+b.dataset.qdel, 1); QA.save(all); renderQA(); }
+  else { const x = all[+b.dataset.qgo]; await openItem(x.id); tab("play"); setTimeout(()=>{ seek(x.t); }, 400); }
+};
+$("#bAsk").onclick = ()=>{ if(speaking){ stopSpeak(); return; } startAsk(); };
+$("#bQSend").onclick = ()=>{ const q = $("#qText").value.trim(); if(!q) return; if(!S.key){ toast("設定でOpenAI APIキーを入れてください"); return; } $("#qText").value = ""; askAI(q, {resume:false}); };
+renderQA();
 
 /* ---------- 車・イヤホンのボタン ---------- */
 function setMedia(){
@@ -535,7 +717,7 @@ function setMedia(){
 }
 
 /* ---------- 設定 ---------- */
-function loadSetUI(){ $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.showJa ? "和訳 表示" : "和訳 非表示"; }
+function loadSetUI(){ $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
 ["#sKey","#sGap","#sReps"].forEach(id=>$(id).onchange = ()=>{ S.key = $("#sKey").value.trim(); S.gap = Math.max(0, +$("#sGap").value||0); S.reps = Math.max(0, Math.round(+$("#sReps").value||0)); saveS(); toast("保存しました"); });
 async function showQuota(){ try{ const e = await navigator.storage.estimate(); $("#quota").textContent = `使用中 ${Math.round(e.usage/1e6)}MB ／ 使える目安 ${Math.round(e.quota/1e6)}MB`; }catch(e){ $("#quota").textContent = "不明"; } }
 document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") saveMeta(); });
