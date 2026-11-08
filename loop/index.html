@@ -135,8 +135,8 @@
     <label>ループのあいだの間（秒・0＝止めずにすぐくり返す）</label><input id="sGap" type="number" step="0.1" min="0">
     <label>ループの回数（0＝止めるまで）</label><input id="sReps" type="number" step="1" min="0">
     <label>声で操作するときの合言葉（シャドーイング中の英語に反応しないように）</label>
-    <div class="row"><select id="sWakeOn" style="flex:0 0 auto"><option value="1">使う</option><option value="0">使わない</option></select><input id="sWake" placeholder="ねえ"></div>
-    <p class="small">「ねえ、次」「ねえ、戻って」のように、合言葉を先に言ったときだけ動きます。「ねえ」とだけ言うと、4秒間は合言葉なしで聞きます。</p>
+    <div class="row"><select id="sWakeOn" style="flex:0 0 auto"><option value="1">使う</option><option value="0">使わない</option></select><input id="sWake" placeholder="アプリ"></div>
+    <p class="small">「アプリ、次」「アプリ、戻って」のように、合言葉を先に言ったときだけ動きます。合言葉だけ言うと、4秒間は合言葉なしで聞きます。「ねえ」「えっと」のような言葉はAIが文字にしないことが多いので、はっきりした言葉にしてください。</p>
   </div>
   <div class="card">
     <b>保存容量</b><p class="small" id="quota"></p>
@@ -158,7 +158,8 @@ const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
-let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, jaNow:true, voice:true, wakeOn:true, wake:"ねえ"}, LS.get("ll_settings", {}));
+let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, jaNow:true, voice:true, wakeOn:true, wake:"アプリ"}, LS.get("ll_settings", {}));
+if(S.wake === "ねえ") S.wake = "アプリ";   // 「ねえ」はAIが聞き流して文字にしないことが多いので変更
 if(!S.key) S.key = LS.get("nl.key", "") || (LS.get("eq_settings", {}).key || "");
 const saveS = ()=>LS.set("ll_settings", S);
 if(!LS.get("ll_v2", false)){ S.gap = 0; LS.set("ll_v2", true); saveS(); }
@@ -634,8 +635,9 @@ function handleHeard(txt){
   // 合言葉：これで始まったときだけ命令として聞く（シャドーイングの英語に反応しないように）
   if(S.wakeOn){
     const kana = s=>s.replace(/[ァ-ヶ]/g, c=>String.fromCharCode(c.charCodeAt(0)-0x60)).replace(/ぇ/g,"え");
-    const w = kana((S.wake||"ねえ").replace(/[\s、。,.!?！？ー〜]/g, "")), k = kana(plain);
-    if(k.startsWith(w)){ plain = plain.slice(w.length); txt = txt.replace(/^[^、。,\s]*?[、。,\s]*/, m=>kana(m.replace(/[\s、。,ー〜]/g,"")).startsWith(w) ? "" : m);
+    const w = kana((S.wake||"アプリ").replace(/[\s、。,.!?！？ー〜]/g, "")), k = kana(plain);
+    const at = k.indexOf(w);
+    if(at >= 0 && at <= 3){ plain = plain.slice(at + w.length);
       if(!plain){ wakeT = Date.now(); voiceHint("🎙 はい（どうぞ）"); beep(); return true; } }
     else if(Date.now() - wakeT > 4000){ voiceHint("👂 " + txt + "（合言葉なし）"); return false; }
     wakeT = 0;
@@ -817,8 +819,8 @@ function setMedia(){
 }
 
 /* ---------- 設定 ---------- */
-function loadSetUI(){ $("#sWakeOn").value = S.wakeOn ? "1" : "0"; $("#sWake").value = S.wake || "ねえ"; $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
-["#sWakeOn","#sWake"].forEach(id=>$(id).onchange = ()=>{ S.wakeOn = $("#sWakeOn").value==="1"; S.wake = $("#sWake").value.trim() || "ねえ"; saveS(); toast("保存しました"); });
+function loadSetUI(){ $("#sWakeOn").value = S.wakeOn ? "1" : "0"; $("#sWake").value = S.wake || "アプリ"; $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
+["#sWakeOn","#sWake"].forEach(id=>$(id).onchange = ()=>{ S.wakeOn = $("#sWakeOn").value==="1"; S.wake = $("#sWake").value.trim() || "アプリ"; saveS(); toast("保存しました"); });
 ["#sKey","#sGap","#sReps"].forEach(id=>$(id).onchange = ()=>{ S.key = $("#sKey").value.trim(); S.gap = Math.max(0, +$("#sGap").value||0); S.reps = Math.max(0, Math.round(+$("#sReps").value||0)); saveS(); toast("保存しました"); });
 async function showQuota(){ try{ const e = await navigator.storage.estimate(); $("#quota").textContent = `使用中 ${Math.round(e.usage/1e6)}MB ／ 使える目安 ${Math.round(e.quota/1e6)}MB`; }catch(e){ $("#quota").textContent = "不明"; } }
 document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") saveMeta(); });
