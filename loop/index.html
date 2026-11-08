@@ -134,6 +134,9 @@
     <p class="small">同じサイトの英作文アプリやながらリスニングに入れたキーがあれば自動で使います。費用はスクリプト作成が音声1分あたり約0.6セント（16分で約10セント）、和訳はほぼ無料です。</p>
     <label>ループのあいだの間（秒・0＝止めずにすぐくり返す）</label><input id="sGap" type="number" step="0.1" min="0">
     <label>ループの回数（0＝止めるまで）</label><input id="sReps" type="number" step="1" min="0">
+    <label>声で操作するときのマイク</label>
+    <select id="sVmode"><option value="push">🎙 か車の一時停止ボタンを押したときだけ聞く（車・Bluetooth向け）</option><option value="always">ずっと聞く（イヤホン・スピーカー向け）</option></select>
+    <p class="small">車のBluetoothでは、マイクを使っている間は音が出なくなります。「押したときだけ」にすると、押してから6秒だけ聞いて、言い終わるとすぐ音が戻ります。</p>
     <label>シャドーイングしても反応しにくくする</label>
     <div class="row"><select id="sWakeOn" style="flex:0 0 auto"><option value="1">する</option><option value="0">しない</option></select><input id="sWake" placeholder="アプリ"></div>
     <p class="small">「する」にすると、「次」「戻って」「0.5倍」のように命令の言葉だけを言ったときに動き、英語の文をシャドーイングしても反応しません。右の欄の合言葉（例：アプリ）を先に言えば、「アプリ、次の区切りに行って」のような長い言い方もできます。</p>
@@ -172,7 +175,7 @@ const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 };
-let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, jaNow:true, voice:true, wakeOn:true, wake:"アプリ"}, LS.get("ll_settings", {}));
+let S = Object.assign({loop:true, all:false, key:"", gap:0, reps:0, rate:1.0, jaAll:false, jaNow:true, voice:true, vmode:"push", wakeOn:true, wake:"アプリ"}, LS.get("ll_settings", {}));
 if(S.wake === "ねえ") S.wake = "アプリ";   // 「ねえ」はAIが聞き流して文字にしないことが多いので変更
 if(!S.key) S.key = LS.get("nl.key", "") || (LS.get("eq_settings", {}).key || "");
 const saveS = ()=>LS.set("ll_settings", S);
@@ -645,11 +648,11 @@ function voiceCmd(raw){
   if(/ループ|繰り返|くりかえ/.test(t)){ if(!loopOn) $("#bLoop").click(); return "区切りループ"; }
   if(/戻|もど|前へ|前に|まえ/.test(t)){ gotoSeg(-1, true); return "1つ前の区切り"; }
   if(/次|つぎ|ツギ|月|継ぎ|注ぎ|進んで|すすんで|スキップ/i.test(t)){ gotoSeg(+1); return "次の区切り"; }
-  if(/止め|とめ|ストップ|停止/.test(t)){ userPause(); return "停止"; }
+  if(/止め|とめ|ストップ|停止/.test(t)){ userPause(); stopAsked = true; return "停止"; }
   if(/再生|スタート|始め|はじめ/.test(t)){ au.play().catch(()=>{}); return "再生"; }
   return "";
 }
-function voiceHint(s){ const el = $("#voiceHint"); el.style.display = voiceOn ? "block" : "none"; el.textContent = s; }
+function voiceHint(s){ const el = $("#voiceHint"); el.style.display = (voiceOn || pushOn) ? "block" : "none"; el.textContent = s; }
 // 聞こえた言葉を処理する（AI聞き取り・ブラウザの聞き取りの両方で使う）
 let qDeb = 0, lastQ = "", wakeT = 0;
 const submitQ = q=>{ q = q.trim(); if(!qMode || q.length < 2) return; qMode = false; clearTimeout(qTimer); clearTimeout(qDeb); askAI(q); };
@@ -677,7 +680,7 @@ function handleHeard(txt){
     const cut = wakeMatch(k, w);
     if(cut >= 0){ plain = plain.slice(cut);
       if(!plain){ wakeT = Date.now(); voiceHint("🎙 はい（どうぞ）"); beep(); return true; } }
-    else if(Date.now() - wakeT > 4000){
+    else if(Date.now() - wakeT > 4000 && !pushOn){
       // 合言葉なしでも、命令の言葉「だけ」を言ったときは動く（シャドーイングの英語の文には反応しない）
       const p2 = jaNum(plain).replace(/(して|してください|お願いします|お願い|ください|です)$/, "");
       if(!ONLY_CMD.test(p2)){ voiceHint("👂 " + txt + "（命令ではないので無視）"); return false; }
@@ -745,11 +748,30 @@ const aiMic = {
       if(this.silMs >= (qMode ? 1000 : 500) || total > maxMs){
         const seg = this.seg, voiced = this.onMs; this.seg = []; this.inSpeech = false; this.onMs = 0; this.silMs = 0;
         if(voiced >= 200 && (qMode || total <= 4000)){ const blob = makeWav16(seg);
-          this.chain = this.chain.then(()=>transcribeCmd(blob)).then(t=>{ if(this.active && t) handleHeard(t); }).catch(()=>{}); }
+          this.chain = this.chain.then(()=>transcribeCmd(blob)).then(t=>{ if(this.active && t){ const ok = handleHeard(t); if(pushOn && ok && !qMode && !speaking) endPush(!stopAsked); } }).catch(()=>{}); }
       }
     }
   }
 };
+
+/* --- ボタンを押したときだけ聞く（車向け）：マイクを使う間はBluetoothの音が止まるので、短い間だけ聞いてすぐ戻す --- */
+let pushOn = false, pushTimer = 0, pushPlaying = false, stopAsked = false;
+async function listenOnce(){
+  if(!S.key){ toast("音声操作には設定でOpenAI APIキーを入れてください", 3000); return; }
+  if(pushOn){ endPush(false); return; }   // 聞いている最中にもう一度押したらやめる
+  pushPlaying = !au.paused; stopAsked = false; userPause();
+  pushOn = true; $("#bVoice").classList.add("on"); voiceHint("🎙 マイクを準備しています…"); logEv("マイク：ボタンで開始");
+  try{ if(!aiMic.active) await aiMic.start(); }catch(e){ pushOn = false; $("#bVoice").classList.remove("on"); toast("マイクが使えません", 3000); return; }
+  beep(); voiceHint("🎙 どうぞ（「次」「0.5倍」「区切り40」「質問、〜」など）");
+  clearTimeout(pushTimer); pushTimer = setTimeout(()=>{ if(pushOn && !qMode){ endPush(false); voiceHint("🎙 何も聞こえなかったので一時停止のままにしました"); } }, 6000);   // 黙っていたら普通の一時停止として扱う
+}
+function endPush(resume){
+  clearTimeout(pushTimer); if(!pushOn) return;
+  pushOn = false; $("#bVoice").classList.remove("on"); logEv("マイク：ボタンの聞き取り終了");
+  if(aiMic.active && !voiceOn) aiMic.stop();
+  setTimeout(()=>{ const el = $("#voiceHint"); el.style.display = "none"; }, 2500);
+  if(resume && cur) setTimeout(()=>au.play().catch(()=>{}), 400);   // マイクを止めてから再生に戻す（音の出口が元に戻るのを待つ）
+}
 
 function startVoice(quiet){
   if(voiceOn) return;
@@ -771,9 +793,9 @@ function startVoice(quiet){
 }
 let lastHeard = 0;
 function stopVoice(){ logEv("マイク：停止"); voiceOn = false; $("#bVoice").classList.remove("on"); voiceHint(""); if(aiMic.active) aiMic.stop(); try{ rec && rec.stop(); }catch(e){} rec = null; }
-$("#bVoice").onclick = ()=>{ if(voiceOn){ stopVoice(); S.voice = false; } else { S.voice = true; startVoice(); } saveS(); };
+$("#bVoice").onclick = ()=>{ if(S.vmode === "push"){ listenOnce(); return; } if(voiceOn){ stopVoice(); S.voice = false; } else { S.voice = true; startVoice(); } saveS(); };
 // ボタンを触らなくても聞くように：開いたとき・再生が始まったとき・画面に触れたときに自動でマイクを入れる
-const autoVoice = ()=>{ if(aiMic.ctx && aiMic.ctx.state==="suspended") aiMic.ctx.resume().catch(()=>{}); if(S.voice && !voiceOn) startVoice(true); };
+const autoVoice = ()=>{ if(aiMic.ctx && aiMic.ctx.state==="suspended") aiMic.ctx.resume().catch(()=>{}); if(S.vmode !== "push" && S.voice && !voiceOn) startVoice(true); };
 autoVoice();
 au.addEventListener("play", autoVoice);
 document.addEventListener("pointerdown", autoVoice, true);
@@ -792,10 +814,14 @@ function beep(){ try{ const C = window.AudioContext||window.webkitAudioContext, 
 function startAsk(){
   if(!cur){ toast("先にファイルを選んでください"); return; }
   if(!S.key){ toast("設定でOpenAI APIキーを入れてください", 3000); return; }
-  userPause(); qMode = true; if(!voiceOn) startVoice(); beep();
+  if(S.vmode === "push" && !voiceOn){
+    if(!pushOn){ listenOnce().then(()=>{ qMode = true; clearTimeout(pushTimer); voiceHint("❓ 質問をどうぞ（今の文について）"); }); setQTimer(); return; }
+    clearTimeout(pushTimer); userPause(); qMode = true; beep();
+  } else { userPause(); qMode = true; if(!voiceOn) startVoice(); beep(); }
   voiceHint("❓ 質問をどうぞ（今の文について）"); toast("質問をどうぞ", 2500);
-  clearTimeout(qTimer); qTimer = setTimeout(()=>{ if(qMode){ qMode = false; voiceHint("🎙 聞いています"); toast("質問が聞き取れませんでした"); } }, 15000);
+  setQTimer();
 }
+function setQTimer(){ clearTimeout(qTimer); qTimer = setTimeout(()=>{ if(qMode){ qMode = false; voiceHint("🎙 聞いています"); toast("質問が聞き取れませんでした"); if(pushOn) endPush(false); } }, 15000); }
 let speakT = 0;
 async function speak(text){
   speaking = true; speakT = Date.now();
@@ -823,9 +849,11 @@ async function askAI(q, opts){
         {role:"user", content:`今の英文：${s.en || "（スクリプトなし）"}\n前の文：${s.before}\n次の文：${s.after}\n\n質問：${q}`}]})});
     if(!r.ok) throw new Error(r.status===401 ? "APIキーが使えません" : "AIにつながりませんでした");
     const j = await r.json(); a = j.choices[0].message.content.trim();
-  }catch(e){ voiceHint(voiceOn ? "🎙 聞いています" : ""); toast(e.message || "答えを作れませんでした", 3500); return; }
+  }catch(e){ if(pushOn) endPush(false); voiceHint(voiceOn ? "🎙 聞いています" : ""); toast(e.message || "答えを作れませんでした", 3500); return; }
   const all = QA.all(); all.unshift({at:Date.now(), id: me && me.id, title: me ? me.title : "", t, en:s.en, q, a}); QA.save(all); renderQA();
   voiceHint("🔊 " + a);
+  if(pushOn) endPush(false);   // マイクを止めてから読み上げる（車で音が出るように）
+  await new Promise(r=>setTimeout(r, 300));
   await speak(a);
   voiceHint(voiceOn ? "🎙 聞いています：「次」「戻って」「遅くして」「質問」" : "");
   if(opts.resume !== false && cur===me){ const [ls] = loopOn ? (loopR || loopRangeFor(segIndex(t))) : [t]; seek(ls); au.play().catch(()=>{}); }
@@ -856,7 +884,7 @@ function setMedia(){
   try{
     navigator.mediaSession.metadata = new MediaMetadata({title:cur.title, artist:"ループリスニング", album:cur.tag||""});
     const h = (a, f)=>{ try{ navigator.mediaSession.setActionHandler(a, f); }catch(e){} };
-    h("play", ()=>{ logEv("車/イヤホン：再生ボタン"); au.play(); }); h("pause", ()=>{ logEv("車/イヤホン：一時停止ボタン"); userPause(); });
+    h("play", ()=>{ logEv("車/イヤホン：再生ボタン"); au.play(); }); h("pause", ()=>{ logEv("車/イヤホン：一時停止ボタン"); if(S.vmode === "push" && S.key){ listenOnce(); } else userPause(); });
     h("stop", ()=>{ logEv("車/イヤホン：停止ボタン"); userPause(); });
     h("previoustrack", ()=>gotoSeg(-1)); h("nexttrack", ()=>gotoSeg(+1));
     h("seekbackward", ()=>seek(au.currentTime-5)); h("seekforward", ()=>seek(au.currentTime+5));
@@ -864,7 +892,8 @@ function setMedia(){
 }
 
 /* ---------- 設定 ---------- */
-function loadSetUI(){ $("#sWakeOn").value = S.wakeOn ? "1" : "0"; $("#sWake").value = S.wake || "アプリ"; $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
+function loadSetUI(){ $("#sVmode").value = S.vmode || "push"; $("#sWakeOn").value = S.wakeOn ? "1" : "0"; $("#sWake").value = S.wake || "アプリ"; $("#sKey").value = S.key; $("#sGap").value = S.gap; $("#sReps").value = S.reps; $("#bRate").textContent = S.rate.toFixed(2)+"x"; $("#bJa").textContent = S.jaAll ? "全文和訳 表示" : "全文和訳 非表示"; }
+$("#sVmode").onchange = ()=>{ S.vmode = $("#sVmode").value; saveS(); if(S.vmode === "push" && voiceOn) stopVoice(); toast("保存しました"); };
 ["#sWakeOn","#sWake"].forEach(id=>$(id).onchange = ()=>{ S.wakeOn = $("#sWakeOn").value==="1"; S.wake = $("#sWake").value.trim() || "アプリ"; saveS(); toast("保存しました"); });
 ["#sKey","#sGap","#sReps"].forEach(id=>$(id).onchange = ()=>{ S.key = $("#sKey").value.trim(); S.gap = Math.max(0, +$("#sGap").value||0); S.reps = Math.max(0, Math.round(+$("#sReps").value||0)); saveS(); toast("保存しました"); });
 /* ---------- 機種変更・バックアップ ---------- */
