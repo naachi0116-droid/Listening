@@ -468,11 +468,14 @@ const aiMic = {
   active:false, stream:null, ctx:null, src:null, proc:null,
   floor:0.01, inSpeech:false, onMs:0, silMs:0, seg:[], pre:[], chain:Promise.resolve(), pend:null, ans:"",
   async start(){
-    const dev = S.car !== "0" ? await phoneMic() : {};
-    try{ this.stream = await navigator.mediaDevices.getUserMedia({audio:Object.assign({echoCancellation:true, noiseSuppression:true, autoGainControl:true}, dev)}); }
-    catch(e){ this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}}); }
+    // 車モード：エコー除去などの「通話用の処理」を切る（入れるとスマホが通話扱いになり、車から音が出なくなる）。本体のマイクを選ぶ
+    const car = S.car !== "0", dev = car ? await phoneMic() : {};
+    const proc = car ? {echoCancellation:false, noiseSuppression:false, autoGainControl:false} : {echoCancellation:true, noiseSuppression:true, autoGainControl:true};
+    try{ this.stream = await navigator.mediaDevices.getUserMedia({audio:Object.assign(proc, dev)}); }
+    catch(e){ this.stream = await navigator.mediaDevices.getUserMedia({audio:proc}); }
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     try{ await this.ctx.resume(); }catch(e){}
+    if(car && !this._shown){ this._shown = true; toast("マイク：" + (MIC_LABEL || "標準"), 2500); }
     this.src = this.ctx.createMediaStreamSource(this.stream);
     this.proc = this.ctx.createScriptProcessor(4096, 1, 1);
     const mute = this.ctx.createGain(); mute.gain.value = 0;
