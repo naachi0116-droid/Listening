@@ -941,8 +941,10 @@ function textArt(en, ja){
   for(;;){ le = wrap(en, `bold ${fe}px sans-serif`, MW, true); lj = ja ? wrap(ja, `bold ${fj}px sans-serif`, MW, false) : [];
     if(le.length*fe*1.22 + (lj.length ? 12 + lj.length*fj*1.28 : 0) <= H || fe <= 13) break; fe -= 1; fj = Math.max(11, fj - 0.8); }
   let y = Y0 + fe;
-  g.fillStyle = "#ffffff"; g.font = `bold ${fe}px sans-serif`; for(const l of le){ g.fillText(l, X0, y); y += fe*1.22; }
-  if(lj.length){ y += 12 - fe*0.22 + fj*0.1; g.fillStyle = "#ffd60a"; g.font = `bold ${fj}px sans-serif`; for(const l of lj){ g.fillText(l, X0, y); y += fj*1.28; } }
+  // 車の画面はジャケットを暗く重ねて表示するので、文字にふちを付けて太く・明るく見せる
+  g.lineJoin = "round";
+  g.fillStyle = "#ffffff"; g.strokeStyle = "#ffffff"; g.lineWidth = 1.6; g.font = `900 ${fe}px sans-serif`; for(const l of le){ g.strokeText(l, X0, y); g.fillText(l, X0, y); y += fe*1.22; }
+  if(lj.length){ y += 12 - fe*0.22 + fj*0.1; g.fillStyle = "#fff36b"; g.strokeStyle = "#fff36b"; g.lineWidth = 0.5; g.font = `900 ${fj}px sans-serif`; for(const l of lj){ g.strokeText(l, X0, y); g.fillText(l, X0, y); y += fj*1.28; } }
   return c.toDataURL("image/png");
 }
 function carText(k){
