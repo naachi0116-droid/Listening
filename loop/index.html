@@ -107,6 +107,7 @@
       <button class="btn" id="bJa">全文和訳 非表示</button>
       <button class="btn" id="bScr">📝 スクリプト</button>
     </div>
+    <button class="btn" id="bAutoCut" style="width:100%;margin-top:8px">✂ 声の切れ目で自動で区切る（BGMがあってもOK）</button>
     <p class="small" style="margin-top:8px">聞きながら文の切れ目で「＋区切り」を押すと、そこで区切れます。⏮⏭で前後の区切りへ、🔁で今の区切りをくり返します。下の細かい波形をタップすると、その位置に移動します。車のハンドルやイヤホンの「前/次」ボタンでも区切りを移動できます。</p>
   </div>
   <div class="card" id="scrCard">
@@ -298,6 +299,36 @@ function splitAtSilences(m){
   }
   m.markers.sort((a,b)=>a-b); m.silSplit = true; return added;
 }
+// 声の切れ目を探して区切る：周り（前後2秒）より音が小さくなるところを「切れ目」とみなす。BGMが流れていても使える
+function autoCut(){
+  if(!env || !env.length) return null;
+  const n = env.length, sm = new Float32Array(n);
+  for(let k=0;k<n;k++){ let s = 0, c = 0; for(let j=-1;j<=1;j++){ const v = env[k+j]; if(v!==undefined){ s += v; c++; } } sm[k] = s/c; }
+  const ref = new Float32Array(n), W = 40;   // 前後2秒の「話している時の大きさ」（上位30%の値）
+  for(let k=0;k<n;k+=5){ const a = Math.max(0,k-W), b = Math.min(n,k+W), arr = Array.from(sm.subarray(a,b)).sort((x,y)=>x-y); const v = arr[Math.floor(arr.length*0.7)] || 0; for(let j=k;j<Math.min(n,k+5);j++) ref[j] = v; }
+  const dips = [];   // [時刻, 深さ]
+  const scan = (ratio, minLen)=>{ const out = []; let run = 0, best = 1e9, bestK = 0;
+    for(let k=0;k<=n;k++){ const low = k<n && ref[k] > 0 && sm[k] < ref[k]*ratio;
+      if(low){ run++; if(sm[k]/ref[k] < best){ best = sm[k]/ref[k]; bestK = k; } }
+      else { if(run >= minLen) out.push([bestK/20, best]); run = 0; best = 1e9; } }
+    return out; };
+  const strong = scan(0.35, 5), weak = scan(0.6, 3);
+  const marks = []; let last = 0;
+  for(const [t] of strong){ if(t - last >= 1.8){ marks.push(t); last = t; } }
+  // 12秒以上切れ目がないところは、少し浅い切れ目で分ける
+  const all = [0, ...marks, n/20], add = [];
+  for(let i=0;i<all.length-1;i++){ let a = all[i], b = all[i+1];
+    while(b - a > 12){ const cand = weak.filter(([t])=>t > a+3 && t < b-3 && t < a+12).sort((x,y)=>x[1]-y[1])[0]; if(!cand) break; add.push(cand[0]); a = cand[0]; } }
+  return [...marks, ...add].filter(t=>t > 0.5).sort((x,y)=>x-y).map(t=>Math.round(t*100)/100);
+}
+$("#bAutoCut").onclick = ()=>{
+  if(!cur) return; if(!env){ toast("音声を読み込み中です。少し待ってからもう一度押してください"); return; }
+  if(cur.markers.length && !confirmCut()) return;
+  const ms = autoCut(); if(!ms || !ms.length){ toast("切れ目が見つかりませんでした"); return; }
+  cur.markers = ms; cur.silSplit = true; loopR = null; saveMeta(); draw(); update();
+  toast("声の切れ目で " + ms.length + " か所区切りました", 3000);
+};
+function confirmCut(){ const b = $("#bAutoCut"); if(b.dataset.sure){ delete b.dataset.sure; b.textContent = "✂ 声の切れ目で自動で区切る（BGMがあってもOK）"; return true; } b.dataset.sure = "1"; b.textContent = "今の区切りを消して作り直します。もう一度押してください"; setTimeout(()=>{ if(b.dataset.sure){ delete b.dataset.sure; b.textContent = "✂ 声の切れ目で自動で区切る（BGMがあってもOK）"; } }, 4000); return false; }
 function segRange(i){ const b = segs(); i = Math.max(0, Math.min(b.length-2, i)); return [b[i], b[i+1], i]; }
 async function openItem(id){
   const m = metas.find(x=>x.id===id) || await DB.get("meta", id); if(!m) return;
