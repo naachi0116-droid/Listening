@@ -762,7 +762,7 @@ async function playAnswerInner(n, it){
     }
   }
   shadowing = false;
-  if(S.mic==="none"){ setStatus("⏭ 次へ進みます…（⏮で前の問題）"); return listenWindow(Math.max(2, S.after||3)*1000, "after"); }
+  if(S.mic==="none"){ setStatus("⏭ 次の問題　／　⏮ 答えをもう一度　／　⏮⏮ 問題からもう一度　／　⏮⏮⏮ 前の問題"); return listenWindow(Infinity, "after"); }   // 勝手に次へ進まない
   if(S.auto==="1"){ setStatus("🎤 次へ進みます…（「もう一回」「10回」なども可）"); return listenWindow(S.after*1000, "after"); }
   setStatus("🎤「次」で次の問題へ（「もう一回」「10回」「速さ0.8」も可）");
   return listenWindow(Infinity, "after");
@@ -920,7 +920,7 @@ async function loop(start){
       if(!running) break;
       let w;
       if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
-      else if(S.mic==="none"){ setStatus("💭 頭の中で英語にしてください（⏭で次、⏮で前）"); w = await listenWindow((S.think>0 ? S.think : 5)*1000, "think"); }
+      else if(S.mic==="none"){ setStatus("💭 頭の中で英語にしてください（⏮で答えを聞く・⏭で次）"); w = await listenWindow((S.think>0 ? S.think : 5)*1000, "think"); }
       else { setStatus("🎤 英語で答えてください（「わからない」で答え）"); w = await listenWindow(S.think>0 ? S.think*1000 : Infinity, "think"); }
       if(w.type==="cmd"){ action = applyCmd(w.cmd, "question"); continue; }
       if(w.type==="speech"){
@@ -1029,7 +1029,10 @@ function setupMediaKeys(){
   if(!("mediaSession" in navigator)) return;
   const h = (a, f)=>{ try{ navigator.mediaSession.setActionHandler(a, f); }catch(e){} };
   h("nexttrack", ()=>sendCmd({type:"next"}));
-  h("previoustrack", ()=>sendCmd({type:"prev"}));
+  // ⏮ は押した回数で使い分け：1回＝答えをもう一度、2回＝問題からもう一度、3回＝前の問題
+  let prevN = 0, prevT = 0;
+  h("previoustrack", ()=>{ prevN++; clearTimeout(prevT); prevT = setTimeout(()=>{ const n = prevN; prevN = 0;
+    sendCmd(n >= 3 ? {type:"prev"} : n === 2 ? {type:"question"} : {type:"repeat", n:1}); }, 600); });
   h("pause", ()=>sendCmd(curWin && curWin.kind==="paused" ? {type:"resume"} : {type:"pause"}));
   h("play", ()=>sendCmd(curWin && curWin.kind==="paused" ? {type:"resume"} : {type:"pause"}));
 }
