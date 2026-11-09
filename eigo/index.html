@@ -451,11 +451,26 @@ async function transcribe(blob){
   }
   return "";
 }
+// 車のBluetoothのマイクを使うと「通話」になって音楽が止まるので、スマホ本体のマイクを選ぶ
+async function phoneMic(){
+  try{
+    const ins = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="audioinput");
+    const bt = /bluetooth|ブルートゥース|headset|hands.?free|car|sco|hfp/i;
+    const good = ins.find(d=>/speaker|built.?in|phone|内蔵|本体|スピーカー|bottom|mic/i.test(d.label) && !bt.test(d.label))
+      || ins.find(d=>d.label && !bt.test(d.label) && !["default","communications",""].includes(d.deviceId));
+    MIC_LABEL = good ? good.label : "標準"; MIC_ALL = ins.map(d=>d.label||"?").join(" / ");
+    if(good) return {deviceId:{exact:good.deviceId}};
+  }catch(e){}
+  return {};
+}
+let MIC_LABEL = "", MIC_ALL = "";
 const aiMic = {
   active:false, stream:null, ctx:null, src:null, proc:null,
   floor:0.01, inSpeech:false, onMs:0, silMs:0, seg:[], pre:[], chain:Promise.resolve(), pend:null, ans:"",
   async start(){
-    this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+    const dev = S.car !== "0" ? await phoneMic() : {};
+    try{ this.stream = await navigator.mediaDevices.getUserMedia({audio:Object.assign({echoCancellation:true, noiseSuppression:true, autoGainControl:true}, dev)}); }
+    catch(e){ this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}}); }
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     try{ await this.ctx.resume(); }catch(e){}
     this.src = this.ctx.createMediaStreamSource(this.stream);
