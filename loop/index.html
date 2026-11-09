@@ -931,18 +931,18 @@ let carKey = "", artK = -2, artURL = "";
 // 車の画面の上の空き（ジャケット画像の場所）に、今の文の全文を画像にして出す（試し）
 function textArt(en, ja){
   const W = 512, c = document.createElement("canvas"); c.width = W; c.height = W; const g = c.getContext("2d");
-  g.fillStyle = "#111827"; g.fillRect(0, 0, W, W);
+  g.fillStyle = "#000000"; g.fillRect(0, 0, W, W);
   const wrap = (txt, font, maxW, words)=>{ g.font = font; const parts = words ? txt.split(/\s+/) : [...txt]; const lines = []; let line = "";
     for(const p of parts){ const t = line ? line + (words ? " " : "") + p : p; if(g.measureText(t).width > maxW && line){ lines.push(line); line = p; } else line = t; }
     if(line) lines.push(line); return lines; };
   // 車の画面では左右が切れ、下半分は文字やボタンが重なるので、真ん中寄りの上半分（幅70%・高さ55%）に収める
-  const X0 = Math.round(W*0.15), MW = W - X0*2, H = W*0.55, Y0 = W*0.06;
-  let fe = 30, fj = 22, le, lj;
-  for(;;){ le = wrap(en, `bold ${fe}px sans-serif`, MW, true); lj = ja ? wrap(ja, `${fj}px sans-serif`, MW, false) : [];
+  const X0 = Math.round(W*0.15), MW = W - X0*2, H = W*0.72, Y0 = W*0.06;
+  let fe = 26, fj = 20, le, lj;
+  for(;;){ le = wrap(en, `bold ${fe}px sans-serif`, MW, true); lj = ja ? wrap(ja, `bold ${fj}px sans-serif`, MW, false) : [];
     if(le.length*fe*1.22 + (lj.length ? 12 + lj.length*fj*1.28 : 0) <= H || fe <= 13) break; fe -= 1; fj = Math.max(11, fj - 0.8); }
   let y = Y0 + fe;
   g.fillStyle = "#ffffff"; g.font = `bold ${fe}px sans-serif`; for(const l of le){ g.fillText(l, X0, y); y += fe*1.22; }
-  if(lj.length){ y += 12 - fe*0.22 + fj*0.1; g.fillStyle = "#facc15"; g.font = `${fj}px sans-serif`; for(const l of lj){ g.fillText(l, X0, y); y += fj*1.28; } }
+  if(lj.length){ y += 12 - fe*0.22 + fj*0.1; g.fillStyle = "#ffd60a"; g.font = `bold ${fj}px sans-serif`; for(const l of lj){ g.fillText(l, X0, y); y += fj*1.28; } }
   return c.toDataURL("image/png");
 }
 function carText(k){
@@ -959,7 +959,9 @@ function carText(k){
   const key = title + "|" + artist; if(key === carKey) return; carKey = key;
   if(x && S.carArt !== false && artK !== k){ artK = k; try{ artURL = textArt(x.en, x.ja || ""); }catch(e){ artURL = ""; } }
   if(!x) { artK = -2; artURL = ""; }
-  try{ navigator.mediaSession.metadata = new MediaMetadata(Object.assign({title, artist, album:cur.title}, artURL ? {artwork:[{src:artURL, sizes:"512x512", type:"image/png"}]} : {})); }catch(e){}
+  // 画像で全文を出しているときは、下の流れる文字は空にする（重なって見づらいので）
+  const md = artURL ? {title:"\u2005", artist:"\u2005", album:"", artwork:[{src:artURL, sizes:"512x512", type:"image/png"}]} : {title, artist, album:cur.title};
+  try{ navigator.mediaSession.metadata = new MediaMetadata(md); }catch(e){}
 }
 
 /* ---------- 設定 ---------- */
