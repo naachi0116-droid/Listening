@@ -57,8 +57,8 @@
 <section id="play" class="on">
   <div class="card" id="setup">
     <div class="row">
-      <div><label>何番から</label><input id="from" type="number" inputmode="numeric" value="1"></div>
-      <div><label>何番まで</label><input id="to" type="number" inputmode="numeric" value="20"></div>
+      <div style="grid-column:span 2"><label>何番から始める？</label><select id="from"></select></div>
+      <div style="display:none"><label>何番まで</label><input id="to" type="number" inputmode="numeric" value="9999"></div>
       <div><label>順番</label><select id="order"><option value="seq">番号順</option><option value="rnd">ランダム</option></select></div>
     </div>
     <div style="margin-top:12px"><button class="btn pri big" id="startBtn">▶ スタート</button></div>
@@ -226,7 +226,7 @@
   <div class="card">
     <b>聞き取りと判定</b>
     <div class="row">
-      <div><label>聞き取り方式</label><select id="sMic"><option value="ai">AI（おすすめ・読み上げ中も「次」が効く）</option><option value="browser">スマホ内蔵（無料）</option></select></div>
+      <div><label>聞き取り方式</label><select id="sMic"><option value="ai">AI（おすすめ・読み上げ中も「次」が効く）</option><option value="browser">スマホ内蔵（無料）</option><option value="none">使わない（車・聞き流し：問題→考える時間→答え→次へ）</option></select></div>
       <div><label>答えのAI判定</label><select id="sJudge"><option value="1">する</option><option value="0">しない</option></select></div>
     </div>
     <div class="row">
@@ -398,7 +398,7 @@ if(SR){
 } else {
   $("#micNote").textContent = "このブラウザは音声認識に対応していません（AndroidのChromeがおすすめ）。ボタンでは操作できます。";
 }
-function startListen(){ if(micHeld){ micHeld = false; if(running && !aiMic.active) aiMic.start().catch(()=>{}); return; } if(!rec || aiMic.active) return; wantListen = true; try{ rec.start(); }catch(e){} }
+function startListen(){ if(S.mic==="none") return; if(micHeld){ micHeld = false; if(running && !aiMic.active) aiMic.start().catch(()=>{}); return; } if(!rec || aiMic.active) return; wantListen = true; try{ rec.start(); }catch(e){} }
 function stopListen(){ if(!rec || aiMic.active) return; wantListen = false; try{ rec.abort(); }catch(e){} }
 
 function listenWindow(ms, kind){
@@ -762,12 +762,13 @@ async function playAnswerInner(n, it){
     }
   }
   shadowing = false;
+  if(S.mic==="none"){ setStatus("⏭ 次へ進みます…（⏮で前の問題）"); return listenWindow(Math.max(2, S.after||3)*1000, "after"); }
   if(S.auto==="1"){ setStatus("🎤 次へ進みます…（「もう一回」「10回」なども可）"); return listenWindow(S.after*1000, "after"); }
   setStatus("🎤「次」で次の問題へ（「もう一回」「10回」「速さ0.8」も可）");
   return listenWindow(Infinity, "after");
 }
 async function loop(start){
-  let action = start || (aiMic.active || rec ? "askrange" : "question");
+  let action = start || "question";   // 始める番号は画面で選ぶので、声では聞かない
   let howFirst = true;
   while(running){
     if(action==="stop") break;
@@ -919,6 +920,7 @@ async function loop(start){
       if(!running) break;
       let w;
       if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
+      else if(S.mic==="none"){ setStatus("💭 頭の中で英語にしてください（⏭で次、⏮で前）"); w = await listenWindow((S.think>0 ? S.think : 5)*1000, "think"); }
       else { setStatus("🎤 英語で答えてください（「わからない」で答え）"); w = await listenWindow(S.think>0 ? S.think*1000 : Infinity, "think"); }
       if(w.type==="cmd"){ action = applyCmd(w.cmd, "question"); continue; }
       if(w.type==="speech"){
@@ -949,7 +951,7 @@ async function loop(start){
   finishSession();
 }
 function finishSession(){
-  running = false; howMode = false; stopListen(); cancelSpeech(); if(aiMic.active) aiMic.stop();
+  running = false; howMode = false; stopListen(); cancelSpeech(); if(aiMic.active) aiMic.stop(); keepAlive(false);
   $("#startBtn").textContent = "▶ スタート"; $("#pauseBtn").textContent = "⏸ ストップ";
   setStatus("終了しました"); $("#heard").textContent = "";
   if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
@@ -970,7 +972,7 @@ $("#startBtn").onclick = ()=>{
   startSession();
 };
 function startSession(mode){
-  const a = +$("#from").value || 1, b = +$("#to").value || 9999;
+  const a = +$("#from").value || 1, b = 9999;   // 選んだ番号から最後まで
   const lo = Math.min(a,b), hi = Math.max(a,b);
   order = items.filter(x=>x.no>=lo && x.no<=hi);
   if(!order.length && mode!=="askhow"){ toast("その範囲に例文がありません"); return; }
@@ -979,10 +981,11 @@ function startSession(mode){
   // スマホで音を出す許可をこのタップで取っておく
   try{ audio.src = silentWav(); audio.play().catch(()=>{}); }catch(e){}
   running = true; paused = false; queued = null; pos = 0; lastQNo = null;
-  $("#startBtn").textContent = "■ 練習を終わる";
+  $("#startBtn").textContent = "■ 練習を終わる"; keepAlive(true);
   keepAwake();
   (async ()=>{
-    if(S.mic==="ai" && S.key){
+    if(S.mic==="none"){ $("#micP").textContent = "🔇 マイクなし（聞き流し）"; }
+    else if(S.mic==="ai" && S.key){
       try{ await aiMic.start(); $("#micP").textContent = "🎙 AI聞き取り"; }
       catch(e){ console.warn(e); toast("マイクが使えないので内蔵の聞き取りにします"); $("#micP").textContent = "🎙 内蔵（AI不可）"; }
     } else $("#micP").textContent = S.key ? "🎙 内蔵" : "🎙 内蔵（キーなし）";
@@ -1013,6 +1016,15 @@ document.querySelectorAll("#ctrl button, [data-cmd=stop]").forEach(b=>b.onclick=
 
 /* ---------- 車のハンドル・イヤホンのボタン ---------- */
 // ⏭＝次の問題、⏮＝前の問題、再生/一時停止＝ストップ・再開。車の画面には今の問題（日本語）を出す
+// 練習中は無音の音をくり返し流しておく。こうするとスマホが「このアプリが再生中」と認識し続け、ハンドルの ⏭ ⏮ がずっと届く
+let ka = null;
+function keepAlive(on){
+  try{
+    if(!ka){ ka = new Audio(silentWav()); ka.loop = true; ka.volume = 0.01; }
+    if(on){ ka.play().catch(()=>{}); navigator.mediaSession && (navigator.mediaSession.playbackState = "playing"); }
+    else { ka.pause(); navigator.mediaSession && (navigator.mediaSession.playbackState = "paused"); }
+  }catch(e){}
+}
 function setupMediaKeys(){
   if(!("mediaSession" in navigator)) return;
   const h = (a, f)=>{ try{ navigator.mediaSession.setActionHandler(a, f); }catch(e){} };
@@ -1035,7 +1047,14 @@ function resetForm(){
   editingNo = null; $("#fNo").value = nextNo(); $("#fJa").value = ""; $("#fEn").value = "";
   $("#formTitle").textContent = "例文を追加"; $("#saveItem").textContent = "追加する"; $("#cancelEdit").style.display = "none";
 }
-function renderList(){
+// 「何番から始める？」の選択肢を例文から作る
+function fillFrom(){
+  const sel = $("#from"), keep = sel.value || (LS.get("eq_range", null)||{}).a || "";
+  const nos = [...items].sort((x,y)=>x.no-y.no);
+  sel.innerHTML = nos.map(x=>`<option value="${x.no}">${x.no}. ${esc((x.ja||"").slice(0,22))}</option>`).join("");
+  if(keep && nos.some(x=>String(x.no)===String(keep))) sel.value = keep;
+}
+function renderList(){ fillFrom();
   const q = $("#search").value.trim().toLowerCase();
   const list = items.filter(x=>!q || (x.ja+" "+x.en).toLowerCase().includes(q) || String(x.no)===q);
   $("#count").textContent = `（${items.length}件）`;
@@ -1205,7 +1224,8 @@ $("#sTest").onclick = ()=>speakEn("I'd like to follow up on the shipment we disc
 
 /* ---------- 起動 ---------- */
 const rg = LS.get("eq_range", null);
-if(rg){ $("#from").value = rg.a; $("#to").value = rg.b; $("#order").value = rg.o; }
+fillFrom();
+if(rg){ $("#from").value = rg.a; $("#order").value = rg.o; }
 loadSettingsUI(); showRate(); resetForm();
 </script>
 </body>
