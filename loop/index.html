@@ -712,6 +712,19 @@ function makeWav16(chunks){
   let o = 44; for(const c of chunks) for(let i=0;i<c.length;i++){ const x = Math.max(-1, Math.min(1, c[i])); v.setInt16(o, x<0 ? x*0x8000 : x*0x7FFF, true); o += 2; }
   return new Blob([b], {type:"audio/wav"});
 }
+// 車のBluetoothのマイクを使うと「通話」になって音楽が止まるので、スマホ本体のマイクを選ぶ
+async function phoneMic(){
+  try{
+    const ins = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="audioinput");
+    const bt = /bluetooth|ブルートゥース|headset|hands.?free|car|sco|hfp/i;
+    const good = ins.find(d=>/speaker|built.?in|phone|内蔵|本体|スピーカー|bottom|mic/i.test(d.label) && !bt.test(d.label))
+      || ins.find(d=>d.label && !bt.test(d.label) && !["default","communications",""].includes(d.deviceId));
+    MIC_LABEL = good ? good.label : "標準"; MIC_ALL = ins.map(d=>d.label||"?").join(" / ");
+    if(good) return {deviceId:{exact:good.deviceId}};
+  }catch(e){}
+  return {};
+}
+let MIC_LABEL = "", MIC_ALL = "";
 let TXM = "";
 async function transcribeCmd(blob){
   // whisper-1 は「日本語で」の指定をきちんと守る（他のモデルはハンガリー語などに聞き違えることがあった）
@@ -727,7 +740,10 @@ const aiMic = {
   active:false, stream:null, ctx:null, src:null, proc:null, floor:0.01, inSpeech:false, onMs:0, silMs:0, seg:[], pre:[], chain:Promise.resolve(),
   async start(){
     // エコー除去をオンにすると、スマホが「通話モード」になって車のBluetoothで音楽が止まることがあるのでオフ
-    this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+    const dev = await phoneMic();
+    try{ this.stream = await navigator.mediaDevices.getUserMedia({audio:Object.assign({echoCancellation:false, noiseSuppression:false, autoGainControl:false}, dev)}); }
+    catch(e){ this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}}); MIC_LABEL += "（選べず標準）"; }
+    if(typeof logEv==="function") logEv("マイク：" + MIC_LABEL + "　［候補：" + MIC_ALL + "］");
     this.ctx = new (window.AudioContext || window.webkitAudioContext)(); try{ await this.ctx.resume(); }catch(e){}
     this.src = this.ctx.createMediaStreamSource(this.stream); this.proc = this.ctx.createScriptProcessor(4096, 1, 1);
     const mute = this.ctx.createGain(); mute.gain.value = 0; this.src.connect(this.proc); this.proc.connect(mute); mute.connect(this.ctx.destination);
@@ -919,12 +935,14 @@ function textArt(en, ja){
   const wrap = (txt, font, maxW, words)=>{ g.font = font; const parts = words ? txt.split(/\s+/) : [...txt]; const lines = []; let line = "";
     for(const p of parts){ const t = line ? line + (words ? " " : "") + p : p; if(g.measureText(t).width > maxW && line){ lines.push(line); line = p; } else line = t; }
     if(line) lines.push(line); return lines; };
-  let fe = 40, fj = 28, le, lj;
-  for(;;){ le = wrap(en, `bold ${fe}px sans-serif`, W-48, true); lj = ja ? wrap(ja, `${fj}px sans-serif`, W-48, false) : [];
-    if(le.length*fe*1.25 + lj.length*fj*1.3 + 30 <= W-40 || fe <= 18) break; fe -= 2; fj = Math.max(16, fj-1); }
-  let y = (W - (le.length*fe*1.25 + (lj.length ? 24 + lj.length*fj*1.3 : 0)))/2 + fe;
-  g.fillStyle = "#ffffff"; g.font = `bold ${fe}px sans-serif`; for(const l of le){ g.fillText(l, 24, y); y += fe*1.25; }
-  if(lj.length){ y += 24 - fe*0.25 + fj*0.2; g.fillStyle = "#facc15"; g.font = `${fj}px sans-serif`; for(const l of lj){ g.fillText(l, 24, y); y += fj*1.3; } }
+  // 車の画面では左右が切れ、下半分は文字やボタンが重なるので、真ん中寄りの上半分（幅70%・高さ55%）に収める
+  const X0 = Math.round(W*0.15), MW = W - X0*2, H = W*0.55, Y0 = W*0.06;
+  let fe = 30, fj = 22, le, lj;
+  for(;;){ le = wrap(en, `bold ${fe}px sans-serif`, MW, true); lj = ja ? wrap(ja, `${fj}px sans-serif`, MW, false) : [];
+    if(le.length*fe*1.22 + (lj.length ? 12 + lj.length*fj*1.28 : 0) <= H || fe <= 13) break; fe -= 1; fj = Math.max(11, fj - 0.8); }
+  let y = Y0 + fe;
+  g.fillStyle = "#ffffff"; g.font = `bold ${fe}px sans-serif`; for(const l of le){ g.fillText(l, X0, y); y += fe*1.22; }
+  if(lj.length){ y += 12 - fe*0.22 + fj*0.1; g.fillStyle = "#facc15"; g.font = `${fj}px sans-serif`; for(const l of lj){ g.fillText(l, X0, y); y += fj*1.28; } }
   return c.toDataURL("image/png");
 }
 function carText(k){
