@@ -555,6 +555,31 @@ function splitPoints(pcm, rate){
   return pts.map(f=>Math.min(pcm.length, f*fr));
 }
 function chunkScore(r){ const s = (r.segments||[]); if(!s.length) return -9; let w = 0, t = 0; for(const x of s){ const d = Math.max(0.1, x.end-x.start); w += d; t += (x.avg_logprob||0)*d; } return t/w; }
+function splitByPunct(text, ws, s0, e0){
+  const pieces = (text||"").trim().match(/[^.?!…]+[.?!…]+["')\]]*|[^.?!…]+$/g) || [];
+  const clean = pieces.map(x=>x.trim()).filter(Boolean);
+  if(!ws.length || clean.length <= 1) return [{start: ws.length ? ws[0].start : s0, end: ws.length ? ws[ws.length-1].end : e0, text}];
+  const toks = clean.map(x=>x.split(/\s+/).filter(Boolean).length), total = toks.reduce((a,b)=>a+b, 0) || 1;
+  const out = []; let acc = 0;
+  for(let i=0;i<clean.length;i++){
+    const a = Math.min(ws.length-1, Math.round(acc/total*ws.length)); acc += toks[i];
+    const b = Math.max(a, Math.min(ws.length-1, Math.round(acc/total*ws.length) - 1));
+    out.push({start: ws[a].start, end: ws[b].end, text: clean[i]});
+  }
+  return out;
+}
+// 区切りを、文と文のあいだの「いちばん音が小さいところ」に合わせる（変なところで切れないように）
+function snapMarks(sc){
+  const marks = [];
+  for(let i=1;i<sc.length;i++){
+    let t = sc[i].s;
+    if(env){ const lo = Math.max(sc[i-1].e - 0.15, t - 0.6), hi = t + 0.12; let best = 1e9, bt = t;
+      for(let k=Math.floor(lo*20); k<=Math.ceil(hi*20); k++){ const v = env[k]; if(v !== undefined && v < best){ best = v; bt = k/20; } }
+      t = Math.min(bt, sc[i].s); }
+    if(t > 0.3) marks.push(Math.round(t*100)/100);
+  }
+  return marks;
+}
 function splitSentences(segsIn){
   // 句点で終わらないものは次とつなぎ、長すぎるものはそのまま
   const out = []; let buf = null;
@@ -619,10 +644,9 @@ async function makeScript(){
       const words = r.words || [];
       for(const s of r.segments){
         if((s.no_speech_prob||0) > 0.7 && (s.avg_logprob||0) < -0.8) continue;   // 音楽などを文字にした誤り
-        let st = s.start, en = s.end;
         const ws = words.filter(w=>w.start >= s.start - 0.3 && w.end <= s.end + 0.3);
-        if(ws.length){ st = ws[0].start; en = ws[ws.length-1].end; }   // 単語の時間で正確に
-        all.push({start: st + off, end: en + off, text: s.text});
+        // 1つのかたまりに文が2つ以上入っていたら、句読点（. ? !）で分け、単語の時間で文ごとの始まり・終わりを決める
+        for(const pc of splitByPunct(s.text, ws, s.start, s.end)) all.push({start: pc.start + off, end: pc.end + off, text: pc.text});
       }
     }
     all.sort((a,b)=>a.start-b.start);
@@ -630,7 +654,7 @@ async function makeScript(){
     await translate(sc);
     me.script = sc;
     // スクリプトを作ったら、区切りも文の頭に合わせて作り直す（前の区切りがずれていても直る）
-    me.markers = sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me){ splitAtSilences(me); loopR = null; }
+    me.markers = (cur===me && env) ? snapMarks(sc) : sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me){ splitAtSilences(me); loopR = null; }
     await DB.put("meta", me);
     if(cur===me){ renderScript(); draw(); }
     setProg(null, sc.length + "文");
