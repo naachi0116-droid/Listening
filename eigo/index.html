@@ -299,7 +299,7 @@ function pickVoice(lang){
 let speakCancel = null;
 // 車のBluetoothでは、マイクを使っている間は音が出ない（通話モードになる）。話す間だけマイクを止めて、終わったら戻す
 let micHeld = false;
-async function micOff(){ if(S.car !== "0" && aiMic.active){ aiMic.stop(); micHeld = true; await new Promise(r=>setTimeout(r, 250)); } }
+async function micOff(){ if(S.car !== "0" && aiMic.active){ aiMic.stop(); micHeld = true; await new Promise(r=>setTimeout(r, 1500)); } }   // 車が「通話」から「音楽」に戻るまで待つ
 async function micOn(){}   // マイクは次に聞くとき（startListen）に戻す。続けて話すとき（くり返し）に何度も切り替えないため
 function speakBrowser(text, lang, rate){ return withMicOff(()=>speakBrowser0(text, lang, rate)); }
 function speakOpenAI(text, rate, instr){ return withMicOff(()=>speakOpenAI0(text, rate, instr)); }
