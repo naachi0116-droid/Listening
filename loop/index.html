@@ -107,7 +107,7 @@
       <button class="btn" id="bJa">全文和訳 非表示</button>
       <button class="btn" id="bScr">📝 スクリプト</button>
     </div>
-    <button class="btn" id="bAutoCut" style="width:100%;margin-top:8px">✂ 句読点で区切り直す（スクリプトがないときは声の切れ目で）</button>
+    <button class="btn" id="bAutoCut" style="width:100%;margin-top:8px">✂ 区切りを作り直す（文の切れ目＋息つぎ）</button>
     <p class="small" style="margin-top:8px">聞きながら文の切れ目で「＋区切り」を押すと、そこで区切れます。⏮⏭で前後の区切りへ、🔁で今の区切りをくり返します。下の細かい波形をタップすると、その位置に移動します。車のハンドルやイヤホンの「前/次」ボタンでも区切りを移動できます。</p>
   </div>
   <div class="card" id="scrCard">
@@ -332,25 +332,13 @@ $("#bAutoCut").onclick = ()=>{
 // 今あるスクリプトを、句読点（. ? !）で1文ずつに分け直して区切る（文字起こしをやり直さないので無料・すぐ終わる）
 // 文の境目の時間は文字数の割合で見当をつけ、近くのいちばん音が小さいところに合わせる
 async function punctResplit(){
-  const me = cur, out = [];
-  for(const x of me.script){
-    const ps = ((x.en||"").trim().match(/[^.?!…]+[.?!…]+["')\]]*|[^.?!…]+$/g) || [x.en]).map(s=>s.trim()).filter(Boolean);
-    if(ps.length <= 1){ out.push(x); continue; }
-    const total = ps.reduce((a,s)=>a+s.length, 0), dur = x.e - x.s; let acc = 0, st = x.s;
-    for(let i=0;i<ps.length;i++){
-      acc += ps[i].length; let en = i===ps.length-1 ? x.e : x.s + dur*acc/total;
-      if(i < ps.length-1 && env){ let best = 1e9, bt = en;   // 見当の前後0.8秒でいちばん静かなところ
-        for(let k=Math.floor((en-0.8)*20); k<=Math.ceil((en+0.8)*20); k++){ const v = env[k]; if(v!==undefined && k/20 > st+0.5 && k/20 < x.e-0.5 && v < best){ best = v; bt = k/20; } }
-        en = bt; }
-      out.push({s:Math.round(st*100)/100, e:Math.round(en*100)/100, en:ps[i], ja: i===0 ? (x.ja||"") : ""}); st = en;
-    }
-  }
-  const added = out.length - me.script.length;
-  me.script = out; me.markers = snapMarks(out); me.silSplit = true; loopR = null; saveMeta(); renderScript(); draw(); update();
-  toast(added > 0 ? `句読点で分け直しました（${out.length}文、区切り${me.markers.length}か所）。和訳を付け直しています…` : `区切りを作り直しました（${me.markers.length}か所）`, 4000);
-  if(added > 0 && S.key){ for(const y of out) y.ja = ""; await translate(out); setProg(null); if(cur===me){ saveMeta(); renderScript(); update(); toast("和訳も付け直しました"); } }
+  const me = cur;
+  me.markers = smartMarks(me.script); me.silSplit = true; loopR = null; saveMeta(); renderScript(); draw(); update();
+  toast(`文の切れ目と息つぎに合わせて区切り直しました（${me.markers.length}か所）`, 4000);
+  const miss = me.script.filter(x=>!x.ja);
+  if(miss.length && S.key){ await translate(miss); setProg(null); if(cur===me){ saveMeta(); renderScript(); update(); toast("足りない和訳も付けました"); } }
 }
-function confirmCut(){ const b = $("#bAutoCut"); if(b.dataset.sure){ delete b.dataset.sure; b.textContent = "✂ 句読点で区切り直す（スクリプトがないときは声の切れ目で）"; return true; } b.dataset.sure = "1"; b.textContent = "今の区切りを消して作り直します。もう一度押してください"; setTimeout(()=>{ if(b.dataset.sure){ delete b.dataset.sure; b.textContent = "✂ 句読点で区切り直す（スクリプトがないときは声の切れ目で）"; } }, 4000); return false; }
+function confirmCut(){ const b = $("#bAutoCut"); if(b.dataset.sure){ delete b.dataset.sure; b.textContent = "✂ 区切りを作り直す（文の切れ目＋息つぎ）"; return true; } b.dataset.sure = "1"; b.textContent = "今の区切りを消して作り直します。もう一度押してください"; setTimeout(()=>{ if(b.dataset.sure){ delete b.dataset.sure; b.textContent = "✂ 区切りを作り直す（文の切れ目＋息つぎ）"; } }, 4000); return false; }
 function segRange(i){ const b = segs(); i = Math.max(0, Math.min(b.length-2, i)); return [b[i], b[i+1], i]; }
 async function openItem(id){
   const m = metas.find(x=>x.id===id) || await DB.get("meta", id); if(!m) return;
@@ -602,6 +590,32 @@ function snapMarks(sc){
   }
   return marks;
 }
+// 区切りを作る（新方式）：①短すぎる文（2.5秒未満・5語未満）は次の文とまとめる ②区切りは文の境目の前後1秒で、
+// 「周りより音がいちばん小さくなるところ」（息つぎ）に置く。BGMがあっても前後の声の大きさと比べるので見つけやすい
+function smartMarks(sc){
+  if(!sc || !sc.length) return [];
+  const words = x=>(x.en||"").split(/\s+/).filter(Boolean).length;
+  const grp = []; let g = null;
+  for(const x of sc){
+    if(!g){ g = {s:x.s, e:x.e, w:words(x)}; continue; }
+    const short = (g.e - g.s) < 2.5 || g.w < 5;
+    if(short && (x.e - g.s) < 16){ g.e = x.e; g.w += words(x); } else { grp.push(g); g = {s:x.s, e:x.e, w:words(x)}; }
+  }
+  if(g){ if(grp.length && ((g.e-g.s) < 1.5 || g.w < 3)) grp[grp.length-1].e = g.e; else grp.push(g); }
+  let rel = null;
+  if(env && env.length){ const n = env.length; rel = new Float32Array(n);
+    for(let k=0;k<n;k+=5){ const a = Math.max(0,k-40), b = Math.min(n,k+40), arr = Array.from(env.subarray(a,b)).sort((x,y)=>x-y); const ref = arr[Math.floor(arr.length*0.7)] || 1e-6;
+      for(let j=k;j<Math.min(n,k+5);j++){ const v = (env[j-1]??env[j]) + env[j] + (env[j+1]??env[j]); rel[j] = v/3/ref; } } }
+  const marks = [];
+  for(let i=1;i<grp.length;i++){
+    let t = grp[i].s;
+    if(rel){ const lo = Math.max(grp[i-1].s + 1, Math.min(grp[i-1].e - 0.3, t - 1.0)), hi = Math.min(grp[i].e - 1, t + 0.4); let best = 1e9, bt = t;
+      for(let k=Math.floor(lo*20); k<=Math.ceil(hi*20); k++){ const v = rel[k]; if(v === undefined) continue; const d = v + Math.abs(k/20 - t)*0.08; if(d < best){ best = d; bt = k/20; } }
+      t = bt; }
+    if(t > 0.3 && (!marks.length || t - marks[marks.length-1] > 1.2)) marks.push(Math.round(t*100)/100);
+  }
+  return marks;
+}
 function splitSentences(segsIn){
   // 句点で終わらないものは次とつなぎ、長すぎるものはそのまま
   const out = []; let buf = null;
@@ -676,7 +690,7 @@ async function makeScript(){
     await translate(sc);
     me.script = sc;
     // スクリプトを作ったら、区切りも文の頭に合わせて作り直す（前の区切りがずれていても直る）
-    me.markers = (cur===me && env) ? snapMarks(sc) : sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me){ splitAtSilences(me); loopR = null; }
+    me.markers = (cur===me && env) ? smartMarks(sc) : sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me){ splitAtSilences(me); loopR = null; }
     await DB.put("meta", me);
     if(cur===me){ renderScript(); draw(); }
     setProg(null, sc.length + "文");
