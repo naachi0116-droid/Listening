@@ -802,6 +802,12 @@ async function phoneMic(){
   return {};
 }
 let MIC_LABEL = "", MIC_ALL = "";
+// 同じスマホの別のタブ（英作文アプリなど）がマイクを使い始めたら、こちらは手放す
+const micBC = ("BroadcastChannel" in window) ? new BroadcastChannel("listening-mic") : null;
+const micId = Math.random().toString(36).slice(2);
+if(micBC) micBC.onmessage = e=>{ if(e.data && e.data.claim && e.data.id !== micId){ try{ if(typeof pushOn!=="undefined" && pushOn) endPush(false); if(voiceOn) stopVoice(); else if(aiMic.active) aiMic.stop(); }catch(_){} } };
+// 画面を離れたら、ずっと聞くモードのマイクも手放す（ほかのアプリの音声入力の邪魔をしない）
+document.addEventListener("visibilitychange", ()=>{ if(document.hidden && aiMic.active && !voiceOn && !(typeof pushOn!=="undefined" && pushOn)) aiMic.stop(); });
 let TXM = "";
 async function transcribeCmd(blob){
   // whisper-1 は「日本語で」の指定をきちんと守る（他のモデルはハンガリー語などに聞き違えることがあった）
@@ -820,6 +826,7 @@ const aiMic = {
     const dev = await phoneMic();
     try{ this.stream = await navigator.mediaDevices.getUserMedia({audio:Object.assign({echoCancellation:false, noiseSuppression:false, autoGainControl:false}, dev)}); }
     catch(e){ this.stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}}); MIC_LABEL += "（選べず標準）"; }
+    try{ micBC && micBC.postMessage({claim:true, id:micId}); }catch(e){}
     if(typeof logEv==="function") logEv("マイク：" + MIC_LABEL + "　［候補：" + MIC_ALL + "］");
     this.ctx = new (window.AudioContext || window.webkitAudioContext)(); try{ await this.ctx.resume(); }catch(e){}
     this.src = this.ctx.createMediaStreamSource(this.stream); this.proc = this.ctx.createScriptProcessor(4096, 1, 1);
