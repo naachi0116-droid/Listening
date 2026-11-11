@@ -61,7 +61,8 @@
       <div style="display:none"><label>何番まで</label><input id="to" type="number" inputmode="numeric" value="9999"></div>
       <div><label>順番</label><select id="order"><option value="seq">番号順</option><option value="rnd">ランダム</option></select></div>
     </div>
-    <div style="margin-top:12px"><button class="btn pri big" id="startBtn">▶ スタート</button></div>
+    <div style="margin-top:12px"><button class="btn pri big" id="startBtn">🏠 家で練習（声で答える）</button></div>
+    <div style="margin-top:8px"><button class="btn big" id="carBtn">🚗 車で練習（マイクなし・⏭ ⏮ で操作）</button></div>
     <div style="margin-top:8px"><button class="btn big howBtn" style="font-size:18px;padding:14px">🎙 英語で何て言う？（聞いて登録）</button></div>
     <p class="small" id="micNote"></p>
   </div>
@@ -218,7 +219,7 @@
       <div><label>英語の速さ</label><input id="sRate" type="number" step="0.1" min="0.5" max="1.8"></div>
       <div><label>自動のときの間（秒）</label><input id="sAfter" type="number" step="1" min="0"></div>
       <div><label>最後まで行ったら</label><select id="sLoop"><option value="0">終わる</option><option value="1">最初に戻る</option></select></div>
-      <div><label>車のBluetoothで使う</label><select id="sCar"><option value="1">はい（話すときはマイクを止める）</option><option value="0">いいえ（イヤホン・スピーカー）</option></select></div>
+      <div style="display:none"><label>車のBluetoothで使う</label><select id="sCar"><option value="1">はい（話すときはマイクを止める）</option><option value="0">いいえ（イヤホン・スピーカー）</option></select></div>
     </div>
     <p class="small">「5回読んで」などのくり返しは、この秒数の間だけあけて続けて読みます（0なら間なし）。後について言う時間がほしいときは2〜3秒にしてください。</p>
   </div>
@@ -226,7 +227,7 @@
   <div class="card">
     <b>聞き取りと判定</b>
     <div class="row">
-      <div><label>聞き取り方式</label><select id="sMic"><option value="ai">AI（おすすめ・読み上げ中も「次」が効く）</option><option value="browser">スマホ内蔵（無料）</option><option value="none">使わない（車・聞き流し：問題→考える時間→答え→次へ）</option></select></div>
+      <div><label>聞き取り方式</label><select id="sMic"><option value="ai">AI（おすすめ・読み上げ中も「次」が効く）</option><option value="browser">スマホ内蔵（無料）</option></select></div>
       <div><label>答えのAI判定</label><select id="sJudge"><option value="1">する</option><option value="0">しない</option></select></div>
     </div>
     <div class="row">
@@ -299,7 +300,9 @@ function pickVoice(lang){
 let speakCancel = null;
 // 車のBluetoothでは、マイクを使っている間は音が出ない（通話モードになる）。話す間だけマイクを止めて、終わったら戻す
 let micHeld = false;
-async function micOff(){ if(S.car !== "0" && aiMic.active){ aiMic.stop(); micHeld = true; await new Promise(r=>setTimeout(r, 1500)); } }   // 車が「通話」から「音楽」に戻るまで待つ
+let sessMode = "home";   // "home"＝マイクで答える／"car"＝マイクを使わない
+const noMic = ()=> sessMode === "car";
+async function micOff(){ if(false && aiMic.active){ aiMic.stop(); micHeld = true; await new Promise(r=>setTimeout(r, 1500)); } }   // 車が「通話」から「音楽」に戻るまで待つ
 async function micOn(){}   // マイクは次に聞くとき（startListen）に戻す。続けて話すとき（くり返し）に何度も切り替えないため
 function speakBrowser(text, lang, rate){ return withMicOff(()=>speakBrowser0(text, lang, rate)); }
 function speakOpenAI(text, rate, instr){ return withMicOff(()=>speakOpenAI0(text, rate, instr)); }
@@ -398,7 +401,7 @@ if(SR){
 } else {
   $("#micNote").textContent = "このブラウザは音声認識に対応していません（AndroidのChromeがおすすめ）。ボタンでは操作できます。";
 }
-function startListen(){ if(S.mic==="none") return; if(micHeld){ micHeld = false; if(running && !aiMic.active) aiMic.start().catch(()=>{}); return; } if(!rec || aiMic.active) return; wantListen = true; try{ rec.start(); }catch(e){} }
+function startListen(){ if(noMic()) return; if(micHeld){ micHeld = false; if(running && !aiMic.active) aiMic.start().catch(()=>{}); return; } if(!rec || aiMic.active) return; wantListen = true; try{ rec.start(); }catch(e){} }
 function stopListen(){ if(!rec || aiMic.active) return; wantListen = false; try{ rec.abort(); }catch(e){} }
 
 function listenWindow(ms, kind){
@@ -469,7 +472,7 @@ const aiMic = {
   floor:0.01, inSpeech:false, onMs:0, silMs:0, seg:[], pre:[], chain:Promise.resolve(), pend:null, ans:"",
   async start(){
     // 車モード：エコー除去などの「通話用の処理」を切る（入れるとスマホが通話扱いになり、車から音が出なくなる）。本体のマイクを選ぶ
-    const car = S.car !== "0", dev = car ? await phoneMic() : {};
+    const car = false, dev = {};   // 家用：マイクは元の設定（エコー除去あり・標準のマイク）に戻す
     const proc = car ? {echoCancellation:false, noiseSuppression:false, autoGainControl:false} : {echoCancellation:true, noiseSuppression:true, autoGainControl:true};
     try{ this.stream = await navigator.mediaDevices.getUserMedia({audio:Object.assign(proc, dev)}); }
     catch(e){ this.stream = await navigator.mediaDevices.getUserMedia({audio:proc}); }
@@ -762,7 +765,7 @@ async function playAnswerInner(n, it){
     }
   }
   shadowing = false;
-  if(S.mic==="none"){ setStatus("⏭ 次の問題　／　⏮ 答えをもう一度　／　⏮⏮ 問題からもう一度　／　⏮⏮⏮ 前の問題"); return listenWindow(Infinity, "after"); }   // 勝手に次へ進まない
+  if(noMic()){ setStatus("⏭ 次の問題　／　⏮ 答えをもう一度　／　⏮⏮ 問題からもう一度　／　⏮⏮⏮ 前の問題"); return listenWindow(Infinity, "after"); }   // 勝手に次へ進まない
   if(S.auto==="1"){ setStatus("🎤 次へ進みます…（「もう一回」「10回」なども可）"); return listenWindow(S.after*1000, "after"); }
   setStatus("🎤「次」で次の問題へ（「もう一回」「10回」「速さ0.8」も可）");
   return listenWindow(Infinity, "after");
@@ -920,7 +923,7 @@ async function loop(start){
       if(!running) break;
       let w;
       if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
-      else if(S.mic==="none"){ setStatus("💭 頭の中で英語にしてください（⏮で答えを聞く・⏭で次）"); w = await listenWindow((S.think>0 ? S.think : 5)*1000, "think"); }
+      else if(noMic()){ setStatus("💭 頭の中で英語にしてください（⏮で答えを聞く・⏭で次）"); w = await listenWindow((S.think>0 ? S.think : 5)*1000, "think"); }
       else { setStatus("🎤 英語で答えてください（「わからない」で答え）"); w = await listenWindow(S.think>0 ? S.think*1000 : Infinity, "think"); }
       if(w.type==="cmd"){ action = applyCmd(w.cmd, "question"); continue; }
       if(w.type==="speech"){
@@ -952,7 +955,7 @@ async function loop(start){
 }
 function finishSession(){
   running = false; howMode = false; stopListen(); cancelSpeech(); if(aiMic.active) aiMic.stop(); keepAlive(false);
-  $("#startBtn").textContent = "▶ スタート"; $("#pauseBtn").textContent = "⏸ ストップ";
+  $("#startBtn").textContent = "🏠 家で練習（声で答える）"; $("#carBtn").style.display = ""; $("#pauseBtn").textContent = "⏸ ストップ";
   setStatus("終了しました"); $("#heard").textContent = "";
   if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
 }
@@ -969,8 +972,9 @@ document.querySelectorAll(".howBtn").forEach(b=>b.onclick = ()=>{
 $("#startBtn").onclick = ()=>{
   if(S.engine==="openai" && !S.key) toast("APIキーがないので内蔵の声で読みます（設定で入れてください）");
   if(running){ sendCmd({type:"stop"}); return; }
-  startSession();
+  sessMode = "home"; if(S.mic === "none"){ S.mic = "ai"; saveSettings(); } startSession();
 };
+$("#carBtn").onclick = ()=>{ if(running) return; sessMode = "car"; startSession(); };
 function startSession(mode){
   const a = +$("#from").value || 1, b = 9999;   // 選んだ番号から最後まで
   const lo = Math.min(a,b), hi = Math.max(a,b);
@@ -981,10 +985,10 @@ function startSession(mode){
   // スマホで音を出す許可をこのタップで取っておく
   try{ audio.src = silentWav(); audio.play().catch(()=>{}); }catch(e){}
   running = true; paused = false; queued = null; pos = 0; lastQNo = null;
-  $("#startBtn").textContent = "■ 練習を終わる"; keepAlive(true);
+  $("#startBtn").textContent = "■ 練習を終わる"; $("#carBtn").style.display = "none"; keepAlive(true);
   keepAwake();
   (async ()=>{
-    if(S.mic==="none"){ $("#micP").textContent = "🔇 マイクなし（聞き流し）"; }
+    if(noMic()){ $("#micP").textContent = "🔇 マイクなし（聞き流し）"; }
     else if(S.mic==="ai" && S.key){
       try{ await aiMic.start(); $("#micP").textContent = "🎙 AI聞き取り"; }
       catch(e){ console.warn(e); toast("マイクが使えないので内蔵の聞き取りにします"); $("#micP").textContent = "🎙 内蔵（AI不可）"; }
@@ -1025,6 +1029,9 @@ function keepAlive(on){
     else { ka.pause(); navigator.mediaSession && (navigator.mediaSession.playbackState = "paused"); }
   }catch(e){}
 }
+// 練習していないのにマイクを持ったままにしない（ほかのアプリの音声入力の邪魔になるため）
+document.addEventListener("visibilitychange", ()=>{ if(document.hidden && !running && aiMic.active) aiMic.stop(); });
+window.addEventListener("pagehide", ()=>{ try{ if(aiMic.active) aiMic.stop(); }catch(e){} });
 function setupMediaKeys(){
   if(!("mediaSession" in navigator)) return;
   const h = (a, f)=>{ try{ navigator.mediaSession.setActionHandler(a, f); }catch(e){} };
