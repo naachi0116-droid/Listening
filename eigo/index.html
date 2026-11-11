@@ -398,7 +398,7 @@ if(SR){
     }
   };
   rec.onend = ()=>{ if(wantListen) setTimeout(()=>{ if(wantListen){ try{ rec.start(); }catch(e){} } }, 120); };
-  rec.onerror = e=>{ if(e.error==="not-allowed"){ wantListen=false; $("#micNote").textContent="マイクが許可されていません。ブラウザの設定でマイクを許可してください。ボタンでは操作できます。"; } };
+  rec.onerror = e=>{ if(e.error && e.error!=="no-speech" && e.error!=="aborted") $("#heard").textContent = "（聞き取りエラー：" + e.error + "）"; if(e.error==="not-allowed"){ wantListen=false; $("#micNote").textContent="マイクが許可されていません。ブラウザの設定でマイクを許可してください。ボタンでは操作できます。"; } };
 } else {
   $("#micNote").textContent = "このブラウザは音声認識に対応していません（AndroidのChromeがおすすめ）。ボタンでは操作できます。";
 }
@@ -414,7 +414,7 @@ function listenWindow(ms, kind){
       finish(r){ if(w.done) return; w.done = true; clearTimeout(timer); if(curWin===w) curWin = null; stopListen(); res(r); },
       extend(){ deadline = Math.max(deadline, performance.now() + 2500); arm(); }
     };
-    curWin = w; arm(); startListen();
+    curWin = w; arm(); if(rec && !aiMic.active) rec.lang = kind==='think' ? 'en-US' : 'ja-JP'; startListen();
   });
 }
 function onHeard(text){
@@ -662,7 +662,9 @@ function parseCommand(raw){
   if(t.length > 16) return null;  // 長い発話は英語の答えとみなす
   if(/^(next|nextplease|skip)$/.test(t)) return {type:"next"};
   if(/^(again|repeat|onemoretime)$/.test(t)) return {type:"repeat", n:1};
-  if(/^(wakaranai|idon'?tknow|idunno|answer)$/.test(t)) return {type:"answer"};
+  if(/^(wakaranai|idon'?tknow|idunno|answer|giveup|pass|ianswer|tellme)$/.test(t)) return {type:"answer"};
+  if(/^(stop|pause|wait)$/.test(t)) return {type:"pause"};
+  if(/^(back|previous|goback)$/.test(t)) return {type:"prev"};
   { const r = t.match(/(\d+|[一二三四五六七八九十百]+)番?から(\d+|[一二三四五六七八九十百]+)番?/);
     if(r){ const a = toNum(r[1]), b = toNum(r[2]); if(a>0 && b>0) return {type:"range", a, b}; }
     const r2 = t.match(/(\d+|[一二三四五六七八九十百]+)番から/);
@@ -932,7 +934,7 @@ async function loop(start){
       let w;
       if(queued){ w = {type:"cmd", cmd:queued}; queued = null; }
       else if(noMic()){ setStatus("💭 頭の中で英語にしてください（⏮で答えを聞く・⏭で次）"); w = await listenWindow((S.think>0 ? S.think : 5)*1000, "think"); }
-      else { setStatus("🎤 英語で答えてください（「わからない」で答え）"); w = await listenWindow(S.think>0 ? S.think*1000 : Infinity, "think"); }
+      else { setStatus(rec && !aiMic.active ? "🎤 英語で答えてください（答えを聞くときは「I don't know」）" : "🎤 英語で答えてください（「わからない」で答え）"); w = await listenWindow(S.think>0 ? S.think*1000 : Infinity, "think"); }
       if(w.type==="cmd"){ action = applyCmd(w.cmd, "question"); continue; }
       if(w.type==="speech"){
         if(S.judge==="1" && S.key){
@@ -997,6 +999,7 @@ function startSession(mode){
   keepAwake();
   (async ()=>{
     if(noMic()){ $("#micP").textContent = "🔇 マイクなし（聞き流し）"; }
+    else if(rec){ $("#micP").textContent = "🎙 スマホの聞き取り"; }   // 家用：スマホ（Google）の聞き取り。答えは英語で聞き、操作は日本語で聞く
     else if(S.mic==="ai" && S.key){
       try{ await aiMic.start(); $("#micP").textContent = "🎙 AI聞き取り"; }
       catch(e){ console.warn(e); toast("マイクが使えないので内蔵の聞き取りにします"); $("#micP").textContent = "🎙 内蔵（AI不可）"; }
