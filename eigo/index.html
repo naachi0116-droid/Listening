@@ -476,6 +476,7 @@ const aiMic = {
     const proc = car ? {echoCancellation:false, noiseSuppression:false, autoGainControl:false} : {echoCancellation:true, noiseSuppression:true, autoGainControl:true};
     try{ this.stream = await navigator.mediaDevices.getUserMedia({audio:Object.assign(proc, dev)}); }
     catch(e){ this.stream = await navigator.mediaDevices.getUserMedia({audio:proc}); }
+    try{ micBC && micBC.postMessage({claim:true, id:micId}); }catch(e){}
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     try{ await this.ctx.resume(); }catch(e){}
     if(car && !this._shown){ this._shown = true; toast("マイク：" + (MIC_LABEL || "標準"), 2500); }
@@ -1030,7 +1031,15 @@ function keepAlive(on){
   }catch(e){}
 }
 // 練習していないのにマイクを持ったままにしない（ほかのアプリの音声入力の邪魔になるため）
-document.addEventListener("visibilitychange", ()=>{ if(document.hidden && !running && aiMic.active) aiMic.stop(); });
+document.addEventListener("visibilitychange", ()=>{
+  if(!document.hidden) return;
+  if(running && sessMode === "home"){ sendCmd({type:"stop"}); finishSession(); }   // 家用は、画面を離れたら練習を終えてマイクを手放す
+  else if(!running && aiMic.active) aiMic.stop();
+});
+// 同じスマホの別のタブ（古いページなど）がマイクを使い始めたら、こちらはマイクを手放す（マイクの取り合いを防ぐ）
+const micBC = ("BroadcastChannel" in window) ? new BroadcastChannel("listening-mic") : null;
+const micId = Math.random().toString(36).slice(2);
+if(micBC) micBC.onmessage = e=>{ if(e.data && e.data.claim && e.data.id !== micId && aiMic.active){ aiMic.stop(); if(running){ sendCmd({type:"stop"}); finishSession(); } toast("別のタブがマイクを使い始めたので、ここは止めました", 3000); } };
 window.addEventListener("pagehide", ()=>{ try{ if(aiMic.active) aiMic.stop(); }catch(e){} });
 function setupMediaKeys(){
   if(!("mediaSession" in navigator)) return;
