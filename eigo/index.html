@@ -69,6 +69,7 @@
 
   <div class="card">
     <div><span id="no">—</span><span class="pill" id="rateP">1.0x</span><span class="pill" id="posP"></span><span class="pill" id="micP"></span></div>
+    <div style="height:6px;background:#0002;border-radius:3px;margin:6px 0"><div id="micLv" style="height:6px;width:0;background:#3c9;border-radius:3px;transition:width .2s"></div></div>
     <div id="ja">スタートを押してください</div>
     <div id="en" class="hide"></div>
     <div id="status"></div>
@@ -450,6 +451,7 @@ async function transcribe(blob){
       const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer " + S.key}, body:fd});
       if(r.ok){ TX_MODEL = m; const j = await r.json(); return (j.text||"").trim(); }
       if(r.status===401){ toast("APIキーが使えません"); return ""; }
+      if(r.status===429){ toast("OpenAIの利用上限です（残高を確認）", 4000); return ""; }
     }catch(e){ console.warn(e); }
   }
   return "";
@@ -499,16 +501,19 @@ const aiMic = {
     let s = 0; for(let i=0;i<buf.length;i++) s += buf[i]*buf[i];
     const rms = Math.sqrt(s/buf.length), ms = buf.length/this.ctx.sampleRate*1000, d = this.down(buf);
     const th = Math.max(0.012, this.floor*3);
+    const now = performance.now(); if(!this._mt || now - this._mt > 250){ this._mt = now; const m = $("#micLv"); if(m) m.style.width = Math.min(100, rms*800) + "%"; }
     if(!this.inSpeech){
       this.pre.push(d); if(this.pre.length > 5) this.pre.shift();
-      if(rms > th){ this.onMs += ms; if(this.onMs >= 150){ this.inSpeech = true; this.seg = this.pre.slice(); this.pre = []; this.silMs = 0; this.speechStart(); } }
+      if(rms > th){ this.onMs += ms; if(this.onMs >= 150){ this.inSpeech = true; this.peak = rms; this.seg = this.pre.slice(); this.pre = []; this.silMs = 0; this.speechStart(); } }
       else { this.onMs = 0; this.floor = this.floor*0.95 + Math.min(rms, 0.1)*0.05; }
     } else {
       this.seg.push(d);
-      if(rms > th*0.8){ this.silMs = 0; this.onMs += ms; } else this.silMs += ms;
+      this.peak = Math.max(this.peak||0, rms);
+      // 話し終わりの判定：周りの音より、自分の声の大きさの何割かで判断する（雑音で「聞いています…」のまま止まらないように）
+      if(rms > Math.max(th*0.8, this.peak*0.2)){ this.silMs = 0; this.onMs += ms; } else this.silMs += ms;
       const need = (curWin && (curWin.kind==="think" || curWin.kind==="how")) ? S.endSil*1000 : 700;
       const total = this.seg.length*ms;
-      if(this.silMs >= need || total > 30000){
+      if(this.silMs >= need || total > 12000){
         const seg = this.seg, voiced = this.onMs;
         this.seg = []; this.inSpeech = false; this.onMs = 0; this.silMs = 0;
         if(shadowing && voiced > 1500){ /* シャドーイング中の長い発話は無視（短い「次」「ストップ」だけ聞く） */ }
@@ -517,7 +522,7 @@ const aiMic = {
     }
   },
   speechStart(){ if(this.pend){ clearTimeout(this.pend); this.pend = null; } if(curWin && curWin.kind==="think") setStatus("🎤 聞いています…"); },
-  send(seg){ const blob = makeWav(seg); this.chain = this.chain.then(()=>transcribe(blob)).then(t=>this.onText(t)).catch(e=>console.warn(e)); },
+  send(seg){ const blob = makeWav(seg); $("#heard").textContent = "⏳ 文字にしています…"; this.chain = this.chain.then(()=>transcribe(blob)).then(t=>{ if(!t) $("#heard").textContent = "（聞き取れませんでした。もう一度どうぞ）"; this.onText(t); }).catch(e=>{ console.warn(e); $("#heard").textContent = "⚠ 通信エラー：" + e.message; }); },
   armPend(){ clearTimeout(this.pend); this.pend = setTimeout(()=>{ this.pend = null; const t = this.ans; this.ans = ""; if(t && curWin && curWin.kind==="think") curWin.finish({type:"speech", text:t}); }, 500); },
   onText(text){
     if(!this.active || !running) return;
@@ -986,7 +991,7 @@ function startSession(mode){
   // スマホで音を出す許可をこのタップで取っておく
   try{ audio.src = silentWav(); audio.play().catch(()=>{}); }catch(e){}
   running = true; paused = false; queued = null; pos = 0; lastQNo = null;
-  $("#startBtn").textContent = "■ 練習を終わる"; $("#carBtn").style.display = "none"; keepAlive(true);
+  $("#startBtn").textContent = "■ 練習を終わる"; $("#carBtn").style.display = "none"; if(sessMode==="car") keepAlive(true);
   keepAwake();
   (async ()=>{
     if(noMic()){ $("#micP").textContent = "🔇 マイクなし（聞き流し）"; }
