@@ -432,7 +432,7 @@ function onHeard(text){
 }
 
 /* ---------- AI聞き取り（録音→無音で区切る→OpenAIで文字に） ---------- */
-let TX_MODEL = "";
+let TX_MODEL = "", TX_ERR = "";
 const FILLER = /\b(u+m+|u+h+|a+h+|e+r+|e+r+m+|h+m+|m+|o+h+|well|so|like)\b|[えあうーっ、。…,.!?！？\s]/gi;
 const normJ = s => (s||"").replace(/[\s、。！？!?,.・「」]/g, "").toLowerCase();
 function makeWav(chunks){
@@ -444,15 +444,17 @@ function makeWav(chunks){
   return new Blob([b], {type:"audio/wav"});
 }
 async function transcribe(blob){
-  const models = TX_MODEL ? [TX_MODEL] : ["gpt-4o-mini-transcribe", "gpt-transcribe"];
+  const models = TX_MODEL ? [TX_MODEL] : ["gpt-4o-mini-transcribe", "whisper-1"];
+  TX_ERR = "";
   for(const m of models){
     const fd = new FormData(); fd.append("file", blob, "speech.wav"); fd.append("model", m);
     try{
       const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {method:"POST", headers:{Authorization:"Bearer " + S.key}, body:fd});
-      if(r.ok){ TX_MODEL = m; const j = await r.json(); return (j.text||"").trim(); }
+      if(r.ok){ TX_MODEL = m; const j = await r.json(); const t = (j.text||"").trim(); if(!t) TX_ERR = "空の結果 " + m + " " + (blob.size/32000).toFixed(1) + "秒"; return t; }
+      TX_ERR = m + "：" + r.status + " " + ((await r.text().catch(()=>"")) || "").slice(0, 120);
       if(r.status===401){ toast("APIキーが使えません"); return ""; }
       if(r.status===429){ toast("OpenAIの利用上限です（残高を確認）", 4000); return ""; }
-    }catch(e){ console.warn(e); }
+    }catch(e){ console.warn(e); TX_ERR = m + "：通信できません " + e.message; }
   }
   return "";
 }
@@ -522,7 +524,7 @@ const aiMic = {
     }
   },
   speechStart(){ if(this.pend){ clearTimeout(this.pend); this.pend = null; } if(curWin && curWin.kind==="think") setStatus("🎤 聞いています…"); },
-  send(seg){ const blob = makeWav(seg); $("#heard").textContent = "⏳ 文字にしています…"; this.chain = this.chain.then(()=>transcribe(blob)).then(t=>{ if(!t) $("#heard").textContent = "（聞き取れませんでした。もう一度どうぞ）"; this.onText(t); }).catch(e=>{ console.warn(e); $("#heard").textContent = "⚠ 通信エラー：" + e.message; }); },
+  send(seg){ const blob = makeWav(seg); $("#heard").textContent = "⏳ 文字にしています…"; this.chain = this.chain.then(()=>transcribe(blob)).then(t=>{ if(!t) $("#heard").textContent = "（聞き取れませんでした：" + (TX_ERR || "?") + "）"; this.onText(t); }).catch(e=>{ console.warn(e); $("#heard").textContent = "⚠ 通信エラー：" + e.message; }); },
   armPend(){ clearTimeout(this.pend); this.pend = setTimeout(()=>{ this.pend = null; const t = this.ans; this.ans = ""; if(t && curWin && curWin.kind==="think") curWin.finish({type:"speech", text:t}); }, 500); },
   onText(text){
     if(!this.active || !running) return;
