@@ -230,6 +230,7 @@
     <div class="row">
       <div><label>聞き取り方式</label><select id="sMic"><option value="ai">AI（おすすめ・読み上げ中も「次」が効く）</option><option value="browser">スマホ内蔵（無料）</option></select></div>
       <div><label>答えのAI判定</label><select id="sJudge"><option value="1">する</option><option value="0">しない</option></select></div>
+      <div style="grid-column:1/-1"><button class="btn" id="aiTest" type="button">🔌 OpenAIにつながるか調べる</button> <span id="aiTestR" class="small"></span></div>
     </div>
     <div class="row">
       <div><label>言い終わりとみなす無音（秒）</label><input id="sEndSil" type="number" step="0.1" min="0.8" max="6"></div>
@@ -622,7 +623,7 @@ Return JSON only: {"verdict":"correct|close|wrong","same":true,"cleaned":"the le
     const j = await r.json(); const g = JSON.parse(j.choices[0].message.content);
     if(!/^(correct|close|wrong)$/.test(g.verdict)) return null;
     return g;
-  }catch(e){ console.warn(e); return localJudge(it, said); }   // AIにつながらないときは、お手本との単語の一致で判定する
+  }catch(e){ console.warn(e); const g = localJudge(it, said); if(g) g.point = (g.point||"") + "［AI判定できず：" + (e.message||e) + "］"; return g; }   // AIにつながらないときは、お手本との単語の一致で判定する
 }
 // スマホだけで判定：お手本と言った英語を単語で比べる（順番も見る）。AIほど柔軟ではないが、通信なしで動く
 function localJudge(it, said){
@@ -1158,6 +1159,14 @@ function carInfo(){
   try{ navigator.mediaSession.metadata = new MediaMetadata({title: it.no + ". " + it.ja, artist:"英作文ドライブ練習", album:""}); }catch(e){}
 }
 setupMediaKeys();
+$("#aiTest").onclick = async ()=>{
+  const out = $("#aiTestR"); out.textContent = "調べています…";
+  if(!S.key){ out.textContent = "❌ APIキーが入っていません（このページの上の欄に入れて保存）"; return; }
+  try{
+    const r = await fetch("https://api.openai.com/v1/models", {headers:{Authorization:"Bearer " + S.key}});
+    out.textContent = r.ok ? "✅ つながりました。AI判定・AI聞き取りが使えます" : r.status===401 ? "❌ つながったが、APIキーが正しくありません（401）" : "❌ つながったが、エラー " + r.status;
+  }catch(e){ out.textContent = "❌ 通信できません（" + e.message + "）。Wi-Fi／モバイルデータの切り替え、VPN・広告ブロック・プライベートDNSを確認"; }
+};
 
 /* ---------- 例文の管理 ---------- */
 let editingNo = null;
