@@ -628,11 +628,14 @@ Return JSON only: {"verdict":"correct|close|wrong","same":true,"cleaned":"the le
 function localJudge(it, said){
   const W = t=>(t||"").toLowerCase().replace(/[’']/g,"'").replace(/\b(um+|uh+|ah+|er+|erm|hmm)\b/g," ").replace(/[^a-z0-9' ]+/g," ").split(/\s+/).filter(Boolean);
   const ref = W(it.en), got = W(said);
+  // 聞き取りの小さなずれ（glazing→grazing、takada→takadar など）は同じ単語とみなす
+  const ed = (x,y)=>{ const r = Array.from({length:x.length+1},(_,i)=>[i]); for(let j=1;j<=y.length;j++) r[0][j]=j; for(let i=1;i<=x.length;i++) for(let j=1;j<=y.length;j++) r[i][j]=Math.min(r[i-1][j]+1,r[i][j-1]+1,r[i-1][j-1]+(x[i-1]===y[j-1]?0:1)); return r[x.length][y.length]; };
+  const near = (x,y)=> x===y || (x.length>=4 && y.length>=4 && ed(x,y) <= (Math.max(x.length,y.length)>=7 ? 2 : 1));
   if(!got.length) return null;
   const n = ref.length, m = got.length, d = Array.from({length:n+1}, ()=>new Array(m+1).fill(0));
-  for(let i=1;i<=n;i++) for(let j=1;j<=m;j++) d[i][j] = ref[i-1]===got[j-1] ? d[i-1][j-1]+1 : Math.max(d[i-1][j], d[i][j-1]);
+  for(let i=1;i<=n;i++) for(let j=1;j<=m;j++) d[i][j] = near(ref[i-1], got[j-1]) ? d[i-1][j-1]+1 : Math.max(d[i-1][j], d[i][j-1]);
   const lcs = d[n][m], score = (2*lcs)/(n+m);
-  const missing = ref.filter(w=>!got.includes(w) && w.length > 2).slice(0,3);
+  const missing = ref.filter(w=>!got.some(g=>near(w,g)) && w.length > 2).slice(0,3);
   const verdict = score >= 0.9 ? "correct" : score >= 0.65 ? "close" : "wrong";
   return {verdict, same: score >= 0.95, cleaned: said, fixed: it.en,
     point: verdict==="correct" ? "" : (missing.length ? "抜け：" + missing.join(", ") : "お手本と語順・言い方が違います") + "（簡易判定）"};
