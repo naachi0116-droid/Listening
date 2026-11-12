@@ -160,7 +160,7 @@
   <div class="card">
     <div class="row" style="align-items:center"><b>登録済み <span id="count"></span></b>
       <input id="search" placeholder="検索" style="flex:1.4"></div>
-    <div style="margin:8px 0"><button class="btn big" id="aiCopy" type="button">🤖 Claude・ChatGPTの音声会話で練習（例文をコピー）</button></div>
+    <div style="margin:8px 0;display:grid;gap:8px"><button class="btn big" id="aiCopy" type="button">🤖 AI会話用：指示をコピー（プロジェクトの「指示」に貼る）</button><button class="btn big" id="aiFile" type="button">📄 AI会話用：例文ファイルを保存（プロジェクトの「情報源」に追加）</button></div>
     <div id="items"></div>
   </div>
 
@@ -1171,21 +1171,24 @@ function carInfo(){
 }
 setupMediaKeys();
 // 例文をまとめてコピー：ClaudeやChatGPTのアプリに貼ると、音声会話で出題・添削してくれる
-$("#aiCopy").onclick = async ()=>{
-  const from = +$("#from").value || 1;
-  const list = [...items].sort((a,b)=>a.no-b.no).filter(x=>x.no >= from);
-  const t = `あなたは私の英会話コーチです。これから音声会話で、下の例文リストを使って瞬間英作文の練習をします。
+// AIアプリ（ChatGPT・Claude）の音声会話で練習するための2点セット：①指示（短い）②例文ファイル
+const AI_RULES = `あなたは私の英会話コーチです。音声会話で、添付の例文ファイル（英作文例文.txt）を使って瞬間英作文の練習をします。
 進め方：
-1. ${list[0] ? list[0].no : 1}番から順に、日本語の文だけを読み上げてください（英語は言わない）。
-2. 私が英語で答えたら、正しいかを短く判定し（正解／おしい／不正解）、直すべき点を日本語で一言だけ言ってください。言いよどみや言い直しは無視してください。
-3. そのあと、お手本の英語を1回、自然な速さで読んでください。
-4. 「次」と言ったら次の番号へ。「もう一回」ならお手本をもう一度、「わからない」ならすぐお手本を言ってください。
-5. 私は運転中のこともあるので、説明は短く、1回の発言は2〜3文までにしてください。
-
-例文リスト（番号. 日本語 ／ お手本の英語）：
-` + list.map(x=>`${x.no}. ${x.ja} ／ ${x.en}`).join("\n");
-  try{ await navigator.clipboard.writeText(t); toast(`${list.length}文をコピーしました。Claudeアプリに貼って送り、音声モードで「始めて」と言ってください`, 5000); }
-  catch(e){ prompt("コピーできなかったので、下の文字を全部選んでコピーしてください", t); }
+1. 私が「○番から」と言ったら、その番号から順に日本語の文だけを読み上げる（英語は言わない）。番号の指定がなければ1番から。
+2. 私が英語で答えたら、正しいかを短く判定し（正解／おしい／不正解）、直すべき点を日本語で一言だけ言う。言いよどみや言い直しは無視する。
+3. そのあと、例文ファイルのお手本の英語を1回、自然な速さで読む。
+4. 「次」と言ったら次の番号へ。「もう一回」ならお手本をもう一度、「わからない」ならすぐお手本を言う。「問題」なら日本語をもう一度。
+5. 運転中のこともあるので、1回の発言は短く2〜3文まで。例文ファイルにない文は出さない。`;
+$("#aiCopy").onclick = async ()=>{
+  try{ await navigator.clipboard.writeText(AI_RULES); toast("指示をコピーしました。プロジェクトの「指示」に貼って保存してください", 5000); }
+  catch(e){ prompt("コピーできなかったので、下の文字を全部選んでコピーしてください", AI_RULES); }
+};
+$("#aiFile").onclick = ()=>{
+  const list = [...items].sort((a,b)=>a.no-b.no);
+  const t = "英作文 例文リスト（番号. 日本語 ／ お手本の英語）\n\n" + list.map(x=>`${x.no}. ${x.ja} ／ ${x.en}`).join("\n") + "\n";
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([t], {type:"text/plain"})); a.download = "英作文例文.txt";
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  toast(`${list.length}文をファイルに保存しました（ダウンロード）。プロジェクトの「情報源」に追加してください`, 5000);
 };
 $("#aiTest").onclick = async ()=>{
   const out = $("#aiTestR"); out.textContent = "調べています…";
