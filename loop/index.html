@@ -367,7 +367,14 @@ async function fillJa(m){
   if(m.jaVer !== 2){ m.script.forEach(x=>{ x.ja = ""; }); m.jaVer = 2; }   // 前の方式の和訳は行がずれていることがあるので、作り直す
   const miss = m.script.filter(x=>!x.ja); if(!miss.length) return;
   fillingJa = true; toast(`和訳が抜けている文（${miss.length}文）に和訳を付けています…`, 3000);
-  try{ await translate(miss); setProg(null); await DB.put("meta", m); if(cur===m){ renderScript(); showNowJa(); artK = -1; carKey = ""; } const left = m.script.filter(x=>!x.ja).length; toast(left ? `和訳を付けました（まだ${left}文残っています。もう一度開くと続きを付けます）` : "和訳を付けました"); }
+  try{
+    // 少しずつ和訳して、できた分からすぐ表示・保存する
+    await translate(miss, async (d, n)=>{ toast(`和訳しています… ${d} / ${n}`, 2500); await DB.put("meta", m); if(cur===m){ showNowJa(); artK = -1; carKey = ""; } });
+    setProg(null); await DB.put("meta", m); if(cur===m){ renderScript(); showNowJa(); artK = -1; carKey = ""; }
+    const left = m.script.filter(x=>!x.ja).length;
+    toast(left ? `和訳できなかった文が${left}文あります${trErr ? "（" + trErr + "）" : ""}。もう一度開くと続きを付けます` : "和訳を付けました", 5000);
+    if(!jaOpen){ jaOpen = true; S.jaNow = true; saveS(); showNowJa(); }
+  }
   finally{ fillingJa = false; }
 }
 function saveMeta(){ if(!cur) return; cur.lastPos = au.currentTime||0; DB.put("meta", cur).catch(()=>{}); }
@@ -655,7 +662,9 @@ async function translateBatch(part){
   const out = part.map((x,k)=>o[String(k+1)]);
   return out.every(v=>typeof v === "string" && v.trim()) ? out : null;
 }
-async function translate(sc){
+let trErr = "";
+async function translate(sc, onBatch){
+  trErr = "";
   for(let i=0;i<sc.length;i+=25){
     const part = sc.slice(i, i+25);
     setProg(Math.round(90 + i/sc.length*10), "和訳しています…");
@@ -663,7 +672,8 @@ async function translate(sc){
       let a = await translateBatch(part);
       if(!a){ a = []; for(let k=0;k<part.length;k+=5){ const b = await translateBatch(part.slice(k,k+5)); a.push(...(b || part.slice(k,k+5).map(()=>null))); } }
       part.forEach((x,k)=>{ if(a[k]) x.ja = a[k]; });
-    }catch(e){ console.warn(e); }
+    }catch(e){ console.warn(e); trErr = e.message || String(e); }
+    if(onBatch) await onBatch(Math.min(sc.length, i+25), sc.length);
   }
 }
 let busy = false;
