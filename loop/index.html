@@ -356,6 +356,16 @@ async function openItem(id){
   if(!m.markers.length && m.script && m.script.length){ m.markers = m.script.map(x=>x.s).filter(x=>x>0.3); saveMeta(); toast("スクリプトの文ごとに区切りを付けました"); }
   if(!peaks || !m.env) buildPeaks(blob).catch(()=>{});
   else if(!m.silSplit){ const n = splitAtSilences(m); if(n){ toast("長い無音に区切りを " + n + " か所足しました"); saveMeta(); } }
+  fillJa(m);
+}
+// 和訳が抜けている文があれば、開いたときに自動で付ける（APIキーが切れていた間に作ったスクリプトなど）
+let fillingJa = false;
+async function fillJa(m){
+  if(fillingJa || !S.key || !m.script || !m.script.length) return;
+  const miss = m.script.filter(x=>!x.ja); if(!miss.length) return;
+  fillingJa = true; toast(`和訳が抜けている文（${miss.length}文）に和訳を付けています…`, 3000);
+  try{ await translate(miss); setProg(null); await DB.put("meta", m); if(cur===m){ renderScript(); showNowJa(); artK = -1; carKey = ""; } const left = m.script.filter(x=>!x.ja).length; toast(left ? `和訳を付けました（まだ${left}文残っています。もう一度開くと続きを付けます）` : "和訳を付けました"); }
+  finally{ fillingJa = false; }
 }
 function saveMeta(){ if(!cur) return; cur.lastPos = au.currentTime||0; DB.put("meta", cur).catch(()=>{}); }
 function setRate(r){ S.rate = Math.min(2, Math.max(0.5, Math.round(r*100)/100)); au.playbackRate = S.rate; au.preservesPitch = true; $("#bRate").textContent = S.rate.toFixed(2)+"x"; saveS(); }
