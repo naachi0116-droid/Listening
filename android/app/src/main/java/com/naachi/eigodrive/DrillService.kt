@@ -88,6 +88,29 @@ class DrillService : Service() {
         }
     }
 
+    private fun kanjiNum(s: String): Int? {
+        val d = mapOf('一' to 1, '二' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)
+        var total = 0; var cur = 0
+        for (c in s) {
+            when {
+                d.containsKey(c) -> cur = d[c]!!
+                c == '百' -> { total += (if (cur == 0) 1 else cur) * 100; cur = 0 }
+                c == '十' -> { total += (if (cur == 0) 1 else cur) * 10; cur = 0 }
+                c == '〇' || c == '零' -> cur = 0
+                else -> return null
+            }
+        }
+        return (total + cur).takeIf { it > 0 }
+    }
+
+    private fun jumpNo(t: String): Int? {
+        val z = t.replace(Regex("[０-９]")) { m -> ((m.value[0] - '０') + '0'.code).toChar().toString() }
+        Regex("""(\d+)\s*番""").find(z)?.let { return it.groupValues[1].toInt() }
+        Regex("""([一二三四五六七八九十百〇零]+)\s*番""").find(z)?.let { return kanjiNum(it.groupValues[1]) }
+        Regex("""(?i)number\s*(\d+)""").find(z)?.let { return it.groupValues[1].toInt() }
+        return null
+    }
+
     private fun run(key: String, from: Int) {
         val a = Audio(this); audio = a
         val ai = Ai(key, filesDir)
@@ -121,6 +144,12 @@ class DrillService : Service() {
                     val said = try { ai.transcribe(wav, it.en) } catch (e: Exception) { set { status = "⚠ " + e.message }; continue }
                     if (said.isBlank()) continue
                     set { heard = said }
+                    // 「100番」「100番読んで」「number 100」で、その番号へ飛ぶ
+                    val jump = jumpNo(said)
+                    if (jump != null) {
+                        val k = items.indexOfFirst { x -> x.no >= jump }
+                        if (k >= 0) { i = k; go = 2; continue }
+                    }
                     when (command(said)) {
                         Cmd.STOP -> { Hub.running = false; break }
                         Cmd.NEXT -> { go = 1; continue }
@@ -139,7 +168,7 @@ class DrillService : Service() {
                     answered = true
                     if (v?.verdict == "correct") go = 1 // 正解なら次へ
                 }
-                i = if (go < 0) (i - 1).coerceAtLeast(0) else i + 1
+                i = when { go == 2 -> i; go < 0 -> (i - 1).coerceAtLeast(0); else -> i + 1 }
             }
             if (i >= items.size) { set { status = "最後の問題まで終わりました" }; say("お疲れさまでした。", true) }
         } catch (e: Exception) {
