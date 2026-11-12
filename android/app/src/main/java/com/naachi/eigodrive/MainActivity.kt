@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var from: EditText
     private lateinit var key: EditText
     private lateinit var startBtn: Button
+    private lateinit var rtBtn: Button
     private val ui = Handler(Looper.getMainLooper())
     private val refresh = { render() }
     private val tick = object : Runnable { override fun run() { level.progress = (Hub.level / 40).toInt().coerceIn(0, 100); ui.postDelayed(this, 150) } }
@@ -62,7 +63,9 @@ class MainActivity : Activity() {
         from = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER; setText(prefs.getInt("from", 1).toString()); textSize = 20f; setTextColor(Color.WHITE); minEms = 4 }
         row.addView(from)
         col.addView(row)
-        startBtn = btn("▶ 練習を始める") { toggle() }.apply { textSize = 22f }
+        rtBtn = btn("🤖 AIと会話して練習（速い・おすすめ）") { toggle("rt") }.apply { textSize = 21f }
+        col.addView(rtBtn, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        startBtn = btn("▶ ふつうの練習（1問ずつ判定）") { toggle("classic") }.apply { textSize = 18f }
         col.addView(startBtn, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         level = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
         col.addView(level)
@@ -96,7 +99,7 @@ class MainActivity : Activity() {
         render()
     }
 
-    private fun toggle() {
+    private fun toggle(mode: String) {
         if (Hub.running) { startService(Intent(this, DrillService::class.java).setAction("stop")); return }
         val k = getSharedPreferences("s", MODE_PRIVATE).getString("key", "") ?: ""
         if (k.isBlank()) { Toast.makeText(this, "先にAPIキーを入れて保存してください", Toast.LENGTH_LONG).show(); return }
@@ -107,17 +110,18 @@ class MainActivity : Activity() {
         val n = from.text.toString().toIntOrNull() ?: 1
         getSharedPreferences("s", MODE_PRIVATE).edit().putInt("from", n).apply()
         Hub.status = "準備中…"; render()
-        startForegroundService(Intent(this, DrillService::class.java).putExtra("from", n))
+        startForegroundService(Intent(this, DrillService::class.java).putExtra("from", n).putExtra("mode", mode))
     }
 
     private fun render() {
         tCount.text = if (Hub.items.isEmpty()) "例文がまだありません。英作文アプリの「例文」タブ →「📄 例文ファイルを保存」で作ったファイルを読み込んでください"
                       else "例文 ${Hub.items.size}文（${Hub.items.first().no}〜${Hub.items.last().no}番）"
-        startBtn.text = if (Hub.running) "■ 練習を終わる" else "▶ 練習を始める"
+        startBtn.text = if (Hub.running) "■ 練習を終わる" else "▶ ふつうの練習（1問ずつ判定）"
+        rtBtn.text = if (Hub.running) "■ 練習を終わる" else "🤖 AIと会話して練習（速い・おすすめ）"
         tStatus.text = Hub.status + if (Hub.route.isNotEmpty() && Hub.running) "　［${Hub.route}］" else ""
         tNo.text = Hub.no; tJa.text = Hub.ja
         tEn.text = if (Hub.showEn) Hub.en else ""
-        tVerdict.text = Hub.verdict
+        tVerdict.text = Hub.verdict.let { if (it.isNotEmpty() && Hub.running && !it.startsWith("✅") && !it.startsWith("🔶") && !it.startsWith("❌")) "AI：$it" else it }
         tHeard.text = if (Hub.heard.isEmpty()) "" else "あなた：" + Hub.heard
         if (Hub.running) {
             val n = Hub.no.removeSuffix("番").toIntOrNull()

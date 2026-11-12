@@ -22,6 +22,7 @@ class DrillService : Service() {
     private var audio: Audio? = null
     private val ui = Handler(Looper.getMainLooper())
     private var wake: PowerManager.WakeLock? = null
+    private var rt: Realtime? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,7 +34,8 @@ class DrillService : Service() {
         if (thread == null) {
             wake = (getSystemService(POWER_SERVICE) as PowerManager)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "eigo:drill").apply { acquire(3 * 60 * 60 * 1000L) }
-            thread = Thread { run(key, start) }.apply { start() }
+            val mode = intent?.getStringExtra("mode") ?: "classic"
+            thread = Thread { if (mode == "rt") runRealtime(key, start) else run(key, start) }.apply { start() }
         }
         return START_NOT_STICKY
     }
@@ -59,6 +61,7 @@ class DrillService : Service() {
     private fun stopDrill() {
         Hub.running = false
         audio?.stopFlag = true
+        rt?.stop()
         thread?.interrupt()
         set { status = "終了しました" }
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -113,6 +116,32 @@ class DrillService : Service() {
         Regex("""([一二三四五六七八九十百〇零]+)\s*番""").find(z)?.let { return kanjiNum(it.groupValues[1]) }
         Regex("""(?i)number\s*(\d+)""").find(z)?.let { return it.groupValues[1].toInt() }
         return null
+    }
+
+    /** AIとリアルタイム会話で練習（出題はアプリが固定で渡す） */
+    private fun runRealtime(key: String, from: Int) {
+        val a = Audio(this); audio = a
+        Hub.running = true
+        val done = java.util.concurrent.CountDownLatch(1)
+        try {
+            a.begin()
+            set { route = a.route }
+            val items = Hub.items
+            val start = items.indexOfFirst { it.no >= from }.coerceAtLeast(0)
+            val r = Realtime(this, key, items, start, { f -> set(f) }, { done.countDown() })
+            rt = r
+            r.start()
+            done.await()
+        } catch (e: Exception) {
+            set { status = "⚠ " + (e.message ?: e.toString()) }
+        } finally {
+            rt = null
+            a.end()
+            Hub.running = false
+            thread = null
+            set { if (!status.startsWith("⚠")) status = "終了しました" }
+            ui.post { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+        }
     }
 
     private fun run(key: String, from: Int) {
