@@ -580,12 +580,20 @@ function splitByPunct(text, ws, s0, e0){
   const pieces = (text||"").trim().match(/[^.?!…]+[.?!…]+["')\]]*|[^.?!…]+$/g) || [];
   const clean = pieces.map(x=>x.trim()).filter(Boolean);
   if(!ws.length || clean.length <= 1) return [{start: ws.length ? ws[0].start : s0, end: ws.length ? ws[ws.length-1].end : e0, text}];
-  const toks = clean.map(x=>x.split(/\s+/).filter(Boolean).length), total = toks.reduce((a,b)=>a+b, 0) || 1;
-  const out = []; let acc = 0;
+  // 文の単語を、AIが返した「単語ごとの時刻」と1語ずつ突き合わせて、文の始まり・終わりの時刻を正確に決める
+  const nw = w=>(w||"").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const out = []; let p = 0;
   for(let i=0;i<clean.length;i++){
-    const a = Math.min(ws.length-1, Math.round(acc/total*ws.length)); acc += toks[i];
-    const b = Math.max(a, Math.min(ws.length-1, Math.round(acc/total*ws.length) - 1));
-    out.push({start: ws[a].start, end: ws[b].end, text: clean[i]});
+    const toks = clean[i].split(/\s+/).map(nw).filter(Boolean);
+    let first = -1, last = -1;
+    for(const t of toks){
+      if(p >= ws.length) break;
+      let hit = -1; for(let q=p; q<Math.min(ws.length, p+4); q++){ if(nw(ws[q].word) === t){ hit = q; break; } }
+      const at = hit >= 0 ? hit : p; if(first < 0) first = at; last = at; p = at + 1;
+    }
+    if(i === clean.length-1 && p < ws.length) last = ws.length-1;
+    if(first < 0){ const prev = out[out.length-1]; out.push({start: prev ? prev.end : s0, end: e0, text: clean[i]}); continue; }
+    out.push({start: ws[first].start, end: ws[Math.max(first,last)].end, text: clean[i]});
   }
   return out;
 }
