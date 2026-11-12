@@ -1017,7 +1017,6 @@ function startSession(mode){
   keepAwake();
   (async ()=>{
     if(noMic()){ $("#micP").textContent = "🔇 マイクなし（聞き流し）"; }
-    else if(rec){ $("#micP").textContent = "🎙 スマホの聞き取り"; }   // 家用：スマホ（Google）の聞き取り。答えは英語で聞き、操作は日本語で聞く
     else if(S.mic==="ai" && S.key){
       try{ await aiMic.start(); $("#micP").textContent = "🎙 AI聞き取り"; }
       catch(e){ console.warn(e); toast("マイクが使えないので内蔵の聞き取りにします"); $("#micP").textContent = "🎙 内蔵（AI不可）"; }
