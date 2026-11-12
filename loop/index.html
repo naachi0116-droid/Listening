@@ -290,7 +290,7 @@ function envFrom(pcm, rate){ const fr = Math.round(rate*0.05), n = Math.floor(pc
   for(let f=0; f<n; f++) out[f] = Math.round(r[f]/mx*1000); return out; }
 // 長い無音（1.2秒以上）の真ん中に区切りを足す（ファイルごとに1回だけ）
 function splitAtSilences(m){
-  if(!env || m.silSplit) return 0; let added = 0, run = 0;
+  if(!env || m.silSplit || (m.script && m.script.length)) return 0; let added = 0, run = 0;
   const d = m.duration || au.duration || env.length/20;
   for(let k=0; k<=env.length; k++){
     if(k<env.length && env[k] <= envThr){ run++; continue; }
@@ -334,7 +334,7 @@ $("#bAutoCut").onclick = ()=>{
 // 文の境目の時間は文字数の割合で見当をつけ、近くのいちばん音が小さいところに合わせる
 async function punctResplit(){
   const me = cur;
-  me.markers = smartMarks(me.script); me.silSplit = true; loopR = null; saveMeta(); renderScript(); draw(); update();
+  me.markers = smartMarks(me.script); me.silSplit = true; me.markVer = 3; loopR = null; saveMeta(); renderScript(); draw(); update();
   toast(`文の切れ目と息つぎに合わせて区切り直しました（${me.markers.length}か所）`, 4000);
   const miss = me.script.filter(x=>!x.ja);
   if(miss.length && S.key){ await translate(miss); setProg(null); if(cur===me){ saveMeta(); renderScript(); update(); toast("足りない和訳も付けました"); } }
@@ -355,6 +355,7 @@ async function openItem(id){
   setEnv(m.env);
   if(!m.markers.length && m.script && m.script.length){ m.markers = m.script.map(x=>x.s).filter(x=>x>0.3); saveMeta(); toast("スクリプトの文ごとに区切りを付けました"); }
   if(!peaks || !m.env) buildPeaks(blob).catch(()=>{});
+  if(m.script && m.script.length && m.markVer !== 3){ m.markers = smartMarks(m.script); m.markVer = 3; m.silSplit = true; DB.put("meta", m).catch(()=>{}); toast("区切りをスクリプトの文に合わせ直しました（" + m.markers.length + "か所）", 3500); }
   else if(!m.silSplit){ const n = splitAtSilences(m); if(n){ toast("長い無音に区切りを " + n + " か所足しました"); saveMeta(); } }
   fillJa(m);
 }
@@ -612,26 +613,16 @@ function snapMarks(sc){
 // 区切りを作る（新方式）：①短すぎる文（2.5秒未満・5語未満）は次の文とまとめる ②区切りは文の境目の前後1秒で、
 // 「周りより音がいちばん小さくなるところ」（息つぎ）に置く。BGMがあっても前後の声の大きさと比べるので見つけやすい
 function smartMarks(sc){
+  // スクリプトがあるときは「1文＝1区切り」。区切りは文の頭（前の文の終わりとのすき間の中）に置くので、
+  // 区切りループ・表示・車の画面がすべて同じ文になる。1秒未満のごく短い文だけは前の文とまとめる
   if(!sc || !sc.length) return [];
-  const words = x=>(x.en||"").split(/\s+/).filter(Boolean).length;
-  const grp = []; let g = null;
-  for(const x of sc){
-    if(!g){ g = {s:x.s, e:x.e, w:words(x)}; continue; }
-    const short = (g.e - g.s) < 2.5 || g.w < 5;
-    if(short && (x.e - g.s) < 16){ g.e = x.e; g.w += words(x); } else { grp.push(g); g = {s:x.s, e:x.e, w:words(x)}; }
-  }
-  if(g){ if(grp.length && ((g.e-g.s) < 1.5 || g.w < 3)) grp[grp.length-1].e = g.e; else grp.push(g); }
-  let rel = null;
-  if(env && env.length){ const n = env.length; rel = new Float32Array(n);
-    for(let k=0;k<n;k+=5){ const a = Math.max(0,k-40), b = Math.min(n,k+40), arr = Array.from(env.subarray(a,b)).sort((x,y)=>x-y); const ref = arr[Math.floor(arr.length*0.7)] || 1e-6;
-      for(let j=k;j<Math.min(n,k+5);j++){ const v = (env[j-1]??env[j]) + env[j] + (env[j+1]??env[j]); rel[j] = v/3/ref; } } }
-  const marks = [];
-  for(let i=1;i<grp.length;i++){
-    let t = grp[i].s;
-    if(rel){ const lo = Math.max(grp[i-1].s + 1, Math.min(grp[i-1].e - 0.3, t - 1.0)), hi = Math.min(grp[i].e - 1, t + 0.4); let best = 1e9, bt = t;
-      for(let k=Math.floor(lo*20); k<=Math.ceil(hi*20); k++){ const v = rel[k]; if(v === undefined) continue; const d = v + Math.abs(k/20 - t)*0.08; if(d < best){ best = d; bt = k/20; } }
-      t = bt; }
-    if(t > 0.3 && (!marks.length || t - marks[marks.length-1] > 1.2)) marks.push(Math.round(t*100)/100);
+  const marks = []; let prevE = sc[0].e;
+  for(let i=1;i<sc.length;i++){
+    const x = sc[i];
+    if(x.e - x.s < 1.0){ prevE = Math.max(prevE, x.e); continue; }
+    const gap = x.s - prevE, t = gap > 0 ? x.s - Math.min(0.15, gap/2) : x.s;
+    if(t > 0.3 && (!marks.length || t - marks[marks.length-1] > 0.8)) marks.push(Math.round(t*100)/100);
+    prevE = x.e;
   }
   return marks;
 }
@@ -709,7 +700,7 @@ async function makeScript(){
     await translate(sc);
     me.script = sc;
     // スクリプトを作ったら、区切りも文の頭に合わせて作り直す（前の区切りがずれていても直る）
-    me.markers = (cur===me && env) ? smartMarks(sc) : sc.map(x=>x.s).filter(x=>x>0.3); me.silSplit = false; if(cur===me){ splitAtSilences(me); loopR = null; }
+    me.markers = smartMarks(sc); me.silSplit = true; me.markVer = 3; if(cur===me){ loopR = null; }
     await DB.put("meta", me);
     if(cur===me){ renderScript(); draw(); }
     setProg(null, sc.length + "文");
