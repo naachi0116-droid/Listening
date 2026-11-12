@@ -364,6 +364,7 @@ async function openItem(id){
 let fillingJa = false;
 async function fillJa(m){
   if(fillingJa || !S.key || !m.script || !m.script.length) return;
+  if(m.jaVer !== 2){ m.script.forEach(x=>{ x.ja = ""; }); m.jaVer = 2; }   // 前の方式の和訳は行がずれていることがあるので、作り直す
   const miss = m.script.filter(x=>!x.ja); if(!miss.length) return;
   fillingJa = true; toast(`和訳が抜けている文（${miss.length}文）に和訳を付けています…`, 3000);
   try{ await translate(miss); setProg(null); await DB.put("meta", m); if(cur===m){ renderScript(); showNowJa(); artK = -1; carKey = ""; } const left = m.script.filter(x=>!x.ja).length; toast(left ? `和訳を付けました（まだ${left}文残っています。もう一度開くと続きを付けます）` : "和訳を付けました"); }
@@ -641,17 +642,26 @@ function splitSentences(segsIn){
   if(buf) out.push(buf);
   return out.map(x=>({s:Math.round(x.s*100)/100, e:Math.round(x.e*100)/100, en:x.en}));
 }
+// 和訳：1行ずつ番号を付けて送り、番号で受け取る（行がまとめられたりずれたりしないように）。
+// 数が合わないときは、小さく分けて送り直す
+async function translateBatch(part){
+  const src = {}; part.forEach((x,k)=>{ src[String(k+1)] = x.en; });
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
+    body:JSON.stringify({model:"gpt-4.1-mini", temperature:0, response_format:{type:"json_object"},
+      messages:[{role:"system", content:'You translate English subtitle lines into natural Japanese for a learner. The input is a JSON object mapping line numbers to English lines. Translate EACH line on its own (never merge, split or move content between lines, even if a sentence continues on the next line). Return a JSON object with exactly the same keys, each mapped to the Japanese translation of that same line.'},
+                {role:"user", content:JSON.stringify(src)}]})});
+  if(!r.ok) throw new Error("和訳 " + r.status);
+  const j = await r.json(); const o = JSON.parse(j.choices[0].message.content) || {};
+  const out = part.map((x,k)=>o[String(k+1)]);
+  return out.every(v=>typeof v === "string" && v.trim()) ? out : null;
+}
 async function translate(sc){
-  for(let i=0;i<sc.length;i+=40){
-    const part = sc.slice(i, i+40);
+  for(let i=0;i<sc.length;i+=25){
+    const part = sc.slice(i, i+25);
     setProg(Math.round(90 + i/sc.length*10), "和訳しています…");
     try{
-      const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
-        body:JSON.stringify({model:"gpt-4o-mini", temperature:0.2, response_format:{type:"json_object"},
-          messages:[{role:"system", content:'Translate each English line into natural Japanese for a learner. Return JSON {"ja":[...]} with exactly the same number of items, in order.'},
-                    {role:"user", content:JSON.stringify(part.map(x=>x.en))}]})});
-      if(!r.ok) continue;
-      const j = await r.json(); const a = JSON.parse(j.choices[0].message.content).ja || [];
+      let a = await translateBatch(part);
+      if(!a){ a = []; for(let k=0;k<part.length;k+=5){ const b = await translateBatch(part.slice(k,k+5)); a.push(...(b || part.slice(k,k+5).map(()=>null))); } }
       part.forEach((x,k)=>{ if(a[k]) x.ja = a[k]; });
     }catch(e){ console.warn(e); }
   }
@@ -702,6 +712,7 @@ async function makeScript(){
     all.sort((a,b)=>a.start-b.start);
     const sc = splitSentences(all);
     await translate(sc);
+    me.jaVer = 2;
     me.script = sc; me.scrVer = 3;
     // スクリプトを作ったら、区切りも文の頭に合わせて作り直す（前の区切りがずれていても直る）
     me.markers = smartMarks(sc); me.silSplit = true; me.markVer = 3; if(cur===me){ loopR = null; }
