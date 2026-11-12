@@ -1077,7 +1077,7 @@ window.addEventListener("pagehide", ()=>{ try{ if(aiMic.active) aiMic.stop(); }c
    ふつうの音楽再生なので、画面を消しても・Wazeを出しても止まりにくく、ハンドルの ⏭ ⏮ がそのまま届く
    一度作った声はスマホに保存されるので、2回目からは通信なしで流れる */
 const carAu = new Audio(); carAu.preload = "auto";
-let carCtx = null, carAnsT = 0, carTailT = 0, carUrl = null, carBusy = 0, carShown = false;
+let carStage = "q", carWaitT = 0, carCtx = null, carAnsT = 0, carTailT = 0, carUrl = null, carBusy = 0, carShown = false;
 async function carDecode(text, instr){
   const url = await getTTS(text, instr);
   const buf = await (await fetch(url)).arrayBuffer();
@@ -1097,11 +1097,13 @@ async function carBuild(it){
   const [q, a] = await Promise.all([carDecode(it.ja, CAR_JA), carDecode(it.en)]);
   const sr = a.sampleRate, sil = sec=>new Float32Array(Math.round(sec*sr));
   const rs = (ab)=>{ const d = ab.getChannelData(0); if(ab.sampleRate===sr) return d; const r = ab.sampleRate/sr, o = new Float32Array(Math.floor(d.length/r)); for(let i=0;i<o.length;i++) o[i] = d[Math.floor(i*r)]; return o; };
-  const think = S.think > 0 ? S.think : 5, qd = rs(q), ad = rs(a);
-  const parts = [sil(0.4), qd, sil(think), ad, sil(1.2), ad, sil(6)];
-  const ansT = (0.4*sr + qd.length + think*sr)/sr - 0.2;
-  const tailT = (0.4*sr + qd.length + think*sr + ad.length*2 + 1.2*sr)/sr;
-  return {blob: carWav(parts, sr), ansT, tailT};
+  // 問題のあとは無音で待つ（⏭ を押すまで答えは流さない）
+  const qd = rs(q), ad = rs(a), W = 6;
+  const parts = [sil(0.4), qd, sil(W), ad, sil(1.2), ad, sil(6)];
+  const waitT = (0.4*sr + qd.length)/sr;
+  const ansT = waitT + W - 0.1;
+  const tailT = (0.4*sr + qd.length + W*sr + ad.length*2 + 1.2*sr)/sr;
+  return {blob: carWav(parts, sr), ansT, tailT, waitT};
 }
 function carMeta(it){
   try{ navigator.mediaSession.metadata = new MediaMetadata({title: it.no + ". " + it.ja, artist: "英作文ドライブ練習", album: ""}); }catch(e){}
@@ -1118,29 +1120,37 @@ async function carGo(d){
   catch(e){ if(my!==carBusy) return; setStatus("⚠ 声を作れませんでした（" + (e.message||e) + "）。⏭で次へ"); $("#heard").textContent = "通信できないときは、家のWi-Fiで一度通して流しておくと保存されて車でも使えます"; return; }
   if(my!==carBusy || !running) return;
   if(carUrl) URL.revokeObjectURL(carUrl); carUrl = URL.createObjectURL(t.blob);
-  carAnsT = t.ansT; carTailT = t.tailT;
+  carAnsT = t.ansT; carTailT = t.tailT; carWaitT = t.waitT; carStage = "q";
   carAu.src = carUrl; carAu.currentTime = 0;
   try{ await carAu.play(); }catch(e){ setStatus("▶ 画面の ⏸ストップ か ハンドルの再生ボタンで始めます"); }
-  setStatus("⏭ 次の問題　／　⏮ 答えをもう一度　／　⏮⏮ 問題からもう一度　／　⏮⏮⏮ 前の問題");
+  carHint();
   // 次の2問の声を先に用意しておく（途切れないように）
   for(const k of [1,2]){ const nx = order[pos+k]; if(nx){ getTTS(nx.ja, CAR_JA).catch(()=>{}); getTTS(nx.en).catch(()=>{}); } }
 }
 carAu.addEventListener("timeupdate", ()=>{
   if(!running || sessMode!=="car") return;
+  // 問題のあとは、⏭ を押すまで無音の部分をくり返して待つ（考える時間は好きなだけ）
+  if(carStage==="q" && carWaitT && carAu.currentTime > carWaitT + 4) carAu.currentTime = carWaitT + 0.5;
   if(!carShown && carAu.currentTime >= carAnsT){ carShown = true; render(true); }
   // 答えのあとの無音をくり返して、⏭ を押すまでこの問題で待つ（勝手に次へ進まない）
   if(carTailT && carAu.currentTime > carTailT + 4) carAu.currentTime = carTailT + 0.5;
 });
-carAu.addEventListener("ended", ()=>{ if(running && sessMode==="car"){ carAu.currentTime = carTailT + 0.5; carAu.play().catch(()=>{}); } });
+carAu.addEventListener("ended", ()=>{ if(running && sessMode==="car"){ carAu.currentTime = carStage==="q" ? carWaitT + 0.5 : carTailT + 0.5; carAu.play().catch(()=>{}); } });
 function carCmd(c){
   if(c.type==="stop"){ finishSession(); return; }
-  if(c.type==="next") return carGo(+1);
+  // ⏭：問題のあと → 答えを流す／答えのあと → 次の問題
+  if(c.type==="next"){ if(carStage==="q"){ carAnswer(); return; } return carGo(+1); }
   if(c.type==="prev") return carGo(-1);
-  if(c.type==="question"){ carAu.currentTime = 0; carShown = false; render(false); carAu.play().catch(()=>{}); return; }
-  if(c.type==="repeat" || c.type==="answer"){ carAu.currentTime = Math.max(0, carAnsT); carAu.play().catch(()=>{}); return; }
+  if(c.type==="question"){ carQuestion(); return; }
+  if(c.type==="answer"){ carAnswer(); return; }
+  // ⏮ 1回：答えのあと → 答えをもう一度／問題のあと → 問題をもう一度
+  if(c.type==="repeat"){ if(carStage==="a") carAnswer(); else carQuestion(); return; }
   if(c.type==="pause" || c.type==="resume"){ if(carAu.paused) carAu.play().catch(()=>{}); else carAu.pause(); $("#pauseBtn").textContent = carAu.paused ? "▶ 再開" : "⏸ ストップ"; return; }
   if(c.type==="jump"){ const i = order.findIndex(x=>x.no===c.no); if(i>=0){ pos = i; carGo(0); } }
 }
+function carAnswer(){ carStage = "a"; carAu.currentTime = Math.max(0, carAnsT); carAu.play().catch(()=>{}); carHint(); }
+function carQuestion(){ carStage = "q"; carShown = false; render(false); carAu.currentTime = 0; carAu.play().catch(()=>{}); carHint(); }
+function carHint(){ setStatus(carStage==="q" ? "💭 考え中…　⏭ 答えを聞く　／　⏮ 問題をもう一度　／　⏮⏮⏮ 前の問題" : "⏭ 次の問題　／　⏮ 答えをもう一度　／　⏮⏮ 問題からもう一度　／　⏮⏮⏮ 前の問題"); }
 function carStop(){ carBusy++; try{ carAu.pause(); carAu.removeAttribute("src"); carAu.load(); }catch(e){} carTailT = 0; }
 function setupMediaKeys(){
   if(!("mediaSession" in navigator)) return;
