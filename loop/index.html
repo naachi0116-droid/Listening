@@ -358,7 +358,7 @@ async function openItem(id){
   if(m.script && m.script.length && m.markVer !== 3){ m.markers = smartMarks(m.script); m.markVer = 3; m.silSplit = true; DB.put("meta", m).catch(()=>{}); toast("区切りをスクリプトの文に合わせ直しました（" + m.markers.length + "か所）", 3500); }
   else if(!m.silSplit){ const n = splitAtSilences(m); if(n){ toast("長い無音に区切りを " + n + " か所足しました"); saveMeta(); } }
   fillJa(m);
-  if(m.script && m.script.length && m.scrVer !== 2) setTimeout(()=>toast("⚠ このスクリプトは古い方式で作ったので、文の時刻が少しずれています。「📝 スクリプト」を2回押して作り直すと、区切りと文がぴったり合います", 7000), 4000);
+  if(m.script && m.script.length && m.scrVer !== 3) setTimeout(()=>toast("⚠ このスクリプトは古い方式で作ったので、文の時刻が少しずれています。「📝 スクリプト」を2回押して作り直すと、区切りと文がぴったり合います", 7000), 4000);
 }
 // 和訳が抜けている文があれば、開いたときに自動で付ける（APIキーが切れていた間に作ったスクリプトなど）
 let fillingJa = false;
@@ -581,7 +581,8 @@ function chunkScore(r){ const s = (r.segments||[]); if(!s.length) return -9; let
 function splitByPunct(text, ws, s0, e0){
   const pieces = (text||"").trim().match(/[^.?!…]+[.?!…]+["')\]]*|[^.?!…]+$/g) || [];
   const clean = pieces.map(x=>x.trim()).filter(Boolean);
-  if(!ws.length || clean.length <= 1) return [{start: ws.length ? ws[0].start : s0, end: ws.length ? ws[ws.length-1].end : e0, text}];
+  // 1文だけのかたまりは、AIが返したかたまりの時刻をそのまま使う（いちばん正確。最初にぴったり合っていた方式）
+  if(!ws.length || clean.length <= 1) return [{start: s0, end: e0, text}];
   // 文の単語を、AIが返した「単語ごとの時刻」と1語ずつ突き合わせて、文の始まり・終わりの時刻を正確に決める
   const nw = w=>(w||"").toLowerCase().replace(/[^a-z0-9]/g, "");
   const out = []; let p = 0;
@@ -597,6 +598,8 @@ function splitByPunct(text, ws, s0, e0){
     if(first < 0){ const prev = out[out.length-1]; out.push({start: prev ? prev.end : s0, end: e0, text: clean[i]}); continue; }
     out.push({start: ws[first].start, end: ws[Math.max(first,last)].end, text: clean[i]});
   }
+  // かたまりの最初と最後は、かたまりの時刻に合わせる（単語の時刻より正確）
+  if(out.length){ out[0].start = s0; out[out.length-1].end = e0; }
   return out;
 }
 // 区切りを、文と文のあいだの「いちばん音が小さいところ」に合わせる（変なところで切れないように）
@@ -699,7 +702,7 @@ async function makeScript(){
     all.sort((a,b)=>a.start-b.start);
     const sc = splitSentences(all);
     await translate(sc);
-    me.script = sc; me.scrVer = 2;
+    me.script = sc; me.scrVer = 3;
     // スクリプトを作ったら、区切りも文の頭に合わせて作り直す（前の区切りがずれていても直る）
     me.markers = smartMarks(sc); me.silSplit = true; me.markVer = 3; if(cur===me){ loopR = null; }
     await DB.put("meta", me);
