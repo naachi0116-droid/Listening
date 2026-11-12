@@ -202,7 +202,6 @@ class DrillService : Service() {
                     say(head + (v?.point ?: ""), true)
                     say(it.en, false)
                     answered = true
-                    if (v?.verdict == "correct") go = 1 // 正解なら次へ
                 }
                 i = when { go == 2 -> i; go < 0 -> (i - 1).coerceAtLeast(0); else -> i + 1 }
             }
