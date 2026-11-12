@@ -51,6 +51,8 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences("s", MODE_PRIVATE)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 60, 40, 60); setBackgroundColor(Color.rgb(17, 20, 24)) }
         col.addView(tv(24f, Color.rgb(255, 160, 80), true).apply { text = "英作文ドライブ（声で練習）" })
+        val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (e: Exception) { "?" }
+        col.addView(tv(13f, Color.GRAY).apply { text = "バージョン $ver" })
         tCount = tv(15f, Color.LTGRAY); col.addView(tCount)
         col.addView(btn("📄 例文ファイルを読み込む") {
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("text/*"), 5)

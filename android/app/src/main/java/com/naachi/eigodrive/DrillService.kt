@@ -88,6 +88,8 @@ class DrillService : Service() {
         }
     }
 
+    private val HINT = "英語の答え、または「次」「もう一回」「わからない」「120番」などの短い日本語の指示です。"
+
     private fun kanjiNum(s: String): Int? {
         val d = mapOf('一' to 1, '二' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)
         var total = 0; var cur = 0
@@ -105,7 +107,9 @@ class DrillService : Service() {
 
     private fun jumpNo(t: String): Int? {
         val z = t.replace(Regex("[０-９]")) { m -> ((m.value[0] - '０') + '0'.code).toChar().toString() }
-        Regex("""(\d+)\s*番""").find(z)?.let { return it.groupValues[1].toInt() }
+        Regex("""(\d+)\s*(番|ばん|ban|号)""").find(z)?.let { return it.groupValues[1].toInt() }
+        // 「120」だけ、のように数字だけを言ったときも番号とみなす
+        Regex("""^\D{0,6}(\d{1,3})\D{0,8}$""").find(z.trim())?.let { m -> if (!Regex("[a-zA-Z]{3,}").containsMatchIn(z)) return m.groupValues[1].toInt() }
         Regex("""([一二三四五六七八九十百〇零]+)\s*番""").find(z)?.let { return kanjiNum(it.groupValues[1]) }
         Regex("""(?i)number\s*(\d+)""").find(z)?.let { return it.groupValues[1].toInt() }
         return null
@@ -141,7 +145,7 @@ class DrillService : Service() {
                         continue
                     }
                     set { status = "⏳ 聞き取り中…" }
-                    val said = try { ai.transcribe(wav, it.en) } catch (e: Exception) { set { status = "⚠ " + e.message }; continue }
+                    val said = try { ai.transcribe(wav, HINT) } catch (e: Exception) { set { status = "⚠ " + e.message }; continue }
                     if (said.isBlank()) continue
                     set { heard = said }
                     // 「100番」「100番読んで」「number 100」で、その番号へ飛ぶ
@@ -159,6 +163,9 @@ class DrillService : Service() {
                         Cmd.AGAIN -> { if (answered) { set { status = "🔊 お手本" }; say(it.en, false) } else say(it.ja, true); continue }
                         null -> {}
                     }
+                    val latin = said.count { ch -> ch in 'a'..'z' || ch in 'A'..'Z' }
+                    val jaChars = said.count { ch -> ch.code in 0x3040..0x30ff || ch.code in 0x4e00..0x9fff }
+                    if (latin < 4 || jaChars > latin) { set { status = "🤔 「$said」は指示として分かりませんでした" }; continue }
                     set { status = "⏳ 判定中…" }
                     val v = try { ai.judge(it.ja, it.en, said) } catch (e: Exception) { set { status = "⚠ " + e.message }; null }
                     val head = when (v?.verdict) { "correct" -> "正解です。"; "close" -> "おしい。"; else -> "もう少し。" }
