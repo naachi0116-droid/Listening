@@ -358,6 +358,7 @@ async function openItem(id){
   if(m.script && m.script.length && m.markVer !== 3){ m.markers = smartMarks(m.script); m.markVer = 3; m.silSplit = true; DB.put("meta", m).catch(()=>{}); toast("区切りをスクリプトの文に合わせ直しました（" + m.markers.length + "か所）", 3500); }
   else if(!m.silSplit){ const n = splitAtSilences(m); if(n){ toast("長い無音に区切りを " + n + " か所足しました"); saveMeta(); } }
   fillJa(m);
+  if(m.script && m.script.length && m.scrVer !== 2) setTimeout(()=>toast("⚠ このスクリプトは古い方式で作ったので、文の時刻が少しずれています。「📝 スクリプト」を2回押して作り直すと、区切りと文がぴったり合います", 7000), 4000);
 }
 // 和訳が抜けている文があれば、開いたときに自動で付ける（APIキーが切れていた間に作ったスクリプトなど）
 let fillingJa = false;
@@ -698,7 +699,7 @@ async function makeScript(){
     all.sort((a,b)=>a.start-b.start);
     const sc = splitSentences(all);
     await translate(sc);
-    me.script = sc;
+    me.script = sc; me.scrVer = 2;
     // スクリプトを作ったら、区切りも文の頭に合わせて作り直す（前の区切りがずれていても直る）
     me.markers = smartMarks(sc); me.silSplit = true; me.markVer = 3; if(cur===me){ loopR = null; }
     await DB.put("meta", me);
