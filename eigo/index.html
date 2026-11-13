@@ -160,7 +160,7 @@
   <div class="card">
     <div class="row" style="align-items:center"><b>登録済み <span id="count"></span></b>
       <input id="search" placeholder="検索" style="flex:1.4"></div>
-    <div style="margin:8px 0;display:grid;gap:8px"><button class="btn big" id="aiCopy" type="button">🤖 AI会話用：指示をコピー（プロジェクトの「指示」に貼る）</button><button class="btn big" id="aiFile" type="button">📄 AI会話用：例文ファイルを保存（プロジェクトの「情報源」に追加）</button></div>
+    <div style="margin:8px 0;display:grid;gap:8px"><button class="btn big" id="aiCopy" type="button">🤖 AI会話用：指示をコピー（プロジェクトの「指示」に貼る）</button><button class="btn big" id="ai20" type="button">🗣 ChatGPT用：「何番から」の番号から20問をコピー</button><button class="btn big" id="aiFile" type="button">📄 AI会話用：例文ファイルを保存（プロジェクトの「情報源」に追加）</button></div>
     <div id="items"></div>
   </div>
 
@@ -1182,6 +1182,24 @@ const AI_RULES = `あなたは私の英会話コーチです。音声会話で�
 $("#aiCopy").onclick = async ()=>{
   try{ await navigator.clipboard.writeText(AI_RULES); toast("指示をコピーしました。プロジェクトの「指示」に貼って保存してください", 5000); }
   catch(e){ prompt("コピーできなかったので、下の文字を全部選んでコピーしてください", AI_RULES); }
+};
+// ChatGPTの音声会話用：20問だけを指示つきでコピー（少ない方がAIが勝手に問題を作りにくい）
+$("#ai20").onclick = async ()=>{
+  const from = +$("#from").value || 1;
+  const list = [...items].sort((a,b)=>a.no-b.no).filter(x=>x.no >= from).slice(0, 20);
+  if(!list.length){ toast("その番号から先の例文がありません"); return; }
+  const t = `これから音声会話で瞬間英作文の練習をします。下の${list.length}問だけを使ってください。
+ルール：
+・${list[0].no}番から順に、日本語だけを読み上げる（番号も言う）。リストにない問題は絶対に作らない。文も変えない。
+・私が英語で答えたら「正解／おしい／もう少し」を一言、直す点を日本語で一言、そのあとお手本の英語を1回読む。
+・私が「次」と言うまで次へ進まない。「もう一回」はお手本をもう一度、「わからない」はお手本、「○番」はその番号へ。
+・1回の発言は短く。最後の${list[list.length-1].no}番が終わったら「20問終わりました」とだけ言う。
+
+` + list.map(x=>`${x.no}. ${x.ja} ／ ${x.en}`).join("\n");
+  try{ await navigator.clipboard.writeText(t); toast(`${list[0].no}〜${list[list.length-1].no}番をコピーしました。ChatGPTの新しいチャットに貼って送り、音声モードで「始めて」と言ってください`, 6000); }
+  catch(e){ prompt("コピーできなかったので、下の文字を全部選んでコピーしてください", t); }
+  const nx = [...items].sort((a,b)=>a.no-b.no).find(x=>x.no > list[list.length-1].no);
+  if(nx){ $("#from").value = String(nx.no); }   // 次回は続きの20問から
 };
 $("#aiFile").onclick = ()=>{
   const list = [...items].sort((a,b)=>a.no-b.no);
