@@ -39,6 +39,11 @@
   .g5{grid-template-columns:repeat(5,1fr)}.g2{grid-template-columns:repeat(2,1fr)}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}
   .grid .btn{padding:14px 2px;font-size:17px}
   #nowEn{cursor:pointer;font-size:20px;font-weight:600;min-height:30px;margin-top:6px}
+  #nowEn .w{border-radius:4px;padding:0 1px}
+  #nowEn .w.on{background:#2f6fb3}
+  #wordBox{display:none;margin:8px 0;padding:10px 12px;border-radius:12px;background:#22344a;border:1px solid #3b5f8a;font-size:16px;line-height:1.5}
+  #wordBox b{font-size:18px}
+  #wordBox .wx{float:right;opacity:.7;padding:0 4px;cursor:pointer}
   #nowJa{font-size:15px;color:var(--sub);min-height:22px}
   .scr{max-height:46vh;overflow:auto;margin-top:6px;position:relative}
   .para{margin:0 0 14px;font-size:17px;line-height:1.75}
@@ -78,7 +83,7 @@
     <canvas id="wave"></canvas>
     <canvas id="zoom"></canvas>
     <div class="time"><span id="tCur">0:00</span><span id="segInfo"></span><span id="tDur">0:00</span></div>
-    <div id="nowEn"></div><div id="nowJa"></div>
+    <div id="nowEn"></div><div id="wordBox"></div><div id="nowJa"></div>
     <div class="grid g5">
       <button class="btn" id="bPrev">⏮</button>
       <button class="btn" id="bBack">−5秒</button>
@@ -421,7 +426,34 @@ $("#bJa").onclick = ()=>{ S.jaAll = !S.jaAll; saveS(); $("#bJa").textContent = S
 // 和訳はいつも表示。英文を押すと消え、もう一度押すと出る
 let jaOpen = S.jaNow !== false, curK = -1;
 function showNowJa(){ const sc = cur && cur.script; $("#nowJa").textContent = (jaOpen && sc && sc[curK]) ? (sc[curK].ja || "（和訳なし）") : ""; }
-$("#nowEn").onclick = ()=>{ if(curK < 0) return; jaOpen = !jaOpen; S.jaNow = jaOpen; saveS(); showNowJa(); };
+// 英文を単語ごとに分けて表示。単語をタップすると意味を出す（単語以外の所をタップすると和訳の表示を切り替え）
+function setNowEn(t){
+  const box = $("#nowEn"); if(box.dataset.t === t) return; box.dataset.t = t; $("#wordBox").style.display = "none";
+  box.innerHTML = (t||"").split(/(\s+)/).map(p=>/\S/.test(p) ? p.replace(/^([^A-Za-z']*)([A-Za-z][A-Za-z'’-]*)?(.*)$/, (m,a,w,b)=> esc(a) + (w ? `<span class="w">${esc(w)}</span>` : "") + esc(b)) : p).join("");
+}
+const WD = LS.get("ll_words", {});   // 調べた単語（同じ単語・同じ文ならAIに聞き直さない）
+async function lookWord(el){
+  const w = el.textContent, sent = cur && cur.script && cur.script[curK] ? cur.script[curK].en : "";
+  $("#nowEn").querySelectorAll(".w.on").forEach(x=>x.classList.remove("on")); el.classList.add("on");
+  const box = $("#wordBox"); box.style.display = "block";
+  const key = w.toLowerCase() + "|" + sent;
+  const show = r=>{ box.innerHTML = `<span class="wx">✕</span><b>${esc(w)}</b>${r.pron ? "　<span class='small'>" + esc(r.pron) + "</span>" : ""}<br>${esc(r.here||"")}` + (r.base && r.base.toLowerCase() !== w.toLowerCase() ? `<br><span class="small">元の形：${esc(r.base)}${r.general ? "（" + esc(r.general) + "）" : ""}</span>` : (r.general && r.general !== r.here ? `<br><span class="small">ふつうの意味：${esc(r.general)}</span>` : "")); box.querySelector(".wx").onclick = e=>{ e.stopPropagation(); box.style.display = "none"; el.classList.remove("on"); }; };
+  if(WD[key]){ show(WD[key]); return; }
+  if(!S.key){ box.textContent = "単語の意味を出すには、設定でOpenAIのAPIキーを入れてください"; return; }
+  box.textContent = "🔎 「" + w + "」を調べています…";
+  try{
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
+      body:JSON.stringify({model:"gpt-4.1-mini", temperature:0, response_format:{type:"json_object"},
+        messages:[{role:"system", content:'You are an English-Japanese dictionary for a Japanese learner. Given a word and the sentence it appears in, reply JSON {"here": Japanese meaning of the word IN THIS SENTENCE with part of speech, e.g. "（動詞）〜をもたらす、引き起こす", max 40 chars, "general": its most common Japanese meaning (short), "base": dictionary form of the word, "pron": IPA pronunciation of the base form}.'},
+                  {role:"user", content:JSON.stringify({word:w, sentence:sent})}]})});
+    if(!r.ok) throw new Error("OpenAI " + r.status);
+    const j = await r.json(); const o = JSON.parse(j.choices[0].message.content);
+    WD[key] = o; LS.set("ll_words", WD); show(o);
+  }catch(e){ box.textContent = "調べられませんでした：" + (e.message||e); }
+}
+$("#nowEn").onclick = e=>{
+  const w = e.target.closest(".w"); if(w){ lookWord(w); return; }
+  if(curK < 0) return; jaOpen = !jaOpen; S.jaNow = jaOpen; saveS(); showNowJa(); };
 $("#bScr").onclick = ()=>makeScript();
 
 /* 再生位置の監視（ループ・表示） */
@@ -457,12 +489,12 @@ async function update(){
     if(k >= 0 && t > sc[k].e + 0.6) k = -1;   // 文と文のすき間（音楽・広告の切れ目など）では何も出さない
     if(k !== lastScrIdx){
       lastScrIdx = k;
-      $("#nowEn").textContent = k>=0 ? sc[k].en : ""; curK = k; showNowJa();
+      setNowEn(k>=0 ? sc[k].en : ""); curK = k; showNowJa();
       document.querySelectorAll(".sl.cur").forEach(x=>x.classList.remove("cur"));
       const el = document.querySelector('.sl[data-i="'+k+'"]'); if(el){ el.classList.add("cur"); followScript(el); }
     }
     if(k >= 0) carText(k);   // 車の画面：長い文は進み具合に合わせて送る
-  } else { $("#nowEn").textContent = ""; $("#nowJa").textContent = ""; }
+  } else { setNowEn(""); $("#nowJa").textContent = ""; }
   draw();
   clearTimeout(savingT); savingT = setTimeout(saveMeta, 3000);
 }
