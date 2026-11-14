@@ -456,25 +456,47 @@ async function lookWord(el){
 }
 // 今の文を、前後の文も見ながらAIが詳しく解説（構文・語句・訳）。一度解説した文は保存して使い回す
 const EX = LS.get("ll_explain", {});
+const EXQ = LS.get("ll_explain_qa", {});   // 解説への追加の質問と答え（文ごと）
+function aiChat(messages, model){
+  return fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
+    body:JSON.stringify({model: model||"gpt-4.1", temperature:0.2, messages})})
+    .then(async r=>{ if(!r.ok) throw new Error("OpenAI " + r.status); const j = await r.json(); return j.choices[0].message.content.trim(); });
+}
+const EX_SYS = "あなたは日本人の社会人に英語を教える講師です。英文1文を、日本語でわかりやすく解説します。マークダウン記号（#や*）は使わず、次の見出しで書いてください。\n【構文】文の骨組み（主語・動詞・目的語など、節や句のまとまり）を、/ で区切った英文と一緒に示す。\n【語句】難しい語・熟語・句動詞を「英語：意味」で3〜6個。\n【直訳】\n【自然な訳】\n【ポイント】聞き取りや使い方のコツを1〜2行。\n全体で400字以内。";
 $("#explainBtn").onclick = async ()=>{
   const sc = cur && cur.script; if(!sc || curK < 0 || !sc[curK]){ toast("解説する文がありません（スクリプトのある所で押してください）"); return; }
-  const x = sc[curK], box = $("#explainBox");
+  const x = sc[curK], box = $("#explainBox"), ctx = [sc[curK-1], sc[curK+1]].filter(Boolean).map(y=>y.en);
+  const userMsg = "解説する文：" + x.en + (ctx.length ? "\n（参考：前後の文）" + ctx.join(" / ") : "");
   box.style.display = "block";
   // 繰り返し再生しても、✕を押すまで消さない（どの文の解説か分かるよう、英文も上に出す）
-  const draw = t=>{ box.innerHTML = '<span class="wx">✕</span><div class="small" style="opacity:.75;margin-bottom:6px">' + esc(x.en) + '</div>' + esc(t); box.querySelector(".wx").onclick = ()=>{ box.style.display = "none"; }; };
-  if(EX[x.en]){ draw(EX[x.en]); return; }
-  if(!S.key){ draw("解説にはOpenAIのAPIキーが要ります（設定で入れてください）"); return; }
-  draw("🧩 解説を作っています…（5〜10秒）");
-  const ctx = [sc[curK-1], sc[curK+1]].filter(Boolean).map(y=>y.en);
-  try{
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
-      body:JSON.stringify({model:"gpt-4.1", temperature:0.2,
-        messages:[{role:"system", content:"あなたは日本人の社会人に英語を教える講師です。英文1文を、日本語でわかりやすく解説します。マークダウン記号（#や*）は使わず、次の見出しで書いてください。\n【構文】文の骨組み（主語・動詞・目的語など、節や句のまとまり）を、/ で区切った英文と一緒に示す。\n【語句】難しい語・熟語・句動詞を「英語：意味」で3〜6個。\n【直訳】\n【自然な訳】\n【ポイント】聞き取りや使い方のコツを1〜2行。\n全体で400字以内。"},
-                  {role:"user", content:"解説する文：" + x.en + (ctx.length ? "\n（参考：前後の文）" + ctx.join(" / ") : "")}]})});
-    if(!r.ok) throw new Error("OpenAI " + r.status);
-    const j = await r.json(); const t = j.choices[0].message.content.trim();
-    EX[x.en] = t; LS.set("ll_explain", EX); draw(t);
-  }catch(e){ draw("解説できませんでした：" + (e.message||e)); }
+  box.innerHTML = '<span class="wx">✕</span><div class="small" style="opacity:.75;margin-bottom:6px">' + esc(x.en) + '</div><div id="exBody"></div><div id="exQA"></div>'
+    + '<div style="display:flex;gap:6px;margin-top:10px;white-space:normal"><input id="exQ" placeholder="質問する（例：この where の使い方は？）" style="flex:1;min-width:0"><button class="btn" id="exAsk" type="button" style="flex:0 0 auto">送信</button></div>';
+  box.querySelector(".wx").onclick = ()=>{ box.style.display = "none"; };
+  const body = $("#exBody"), qa = $("#exQA");
+  const drawQA = ()=>{ qa.innerHTML = (EXQ[x.en]||[]).map(p=>'<div style="margin-top:12px;padding-top:8px;border-top:1px solid #3d6b47"><b>Q. ' + esc(p.q) + '</b>\n' + esc(p.a) + '</div>').join(""); };
+  drawQA();
+  if(EX[x.en]) body.textContent = EX[x.en];
+  else if(!S.key) body.textContent = "解説にはOpenAIのAPIキーが要ります（設定で入れてください）";
+  else {
+    body.textContent = "🧩 解説を作っています…（5〜10秒）";
+    try{ const t = await aiChat([{role:"system", content:EX_SYS}, {role:"user", content:userMsg}]); EX[x.en] = t; LS.set("ll_explain", EX); body.textContent = t; }
+    catch(e){ body.textContent = "解説できませんでした：" + (e.message||e); }
+  }
+  const ask = async ()=>{
+    const q = $("#exQ").value.trim(); if(!q) return;
+    if(!S.key){ toast("OpenAIのAPIキーが要ります"); return; }
+    $("#exQ").value = ""; const list = EXQ[x.en] = EXQ[x.en] || [];
+    const p = {q, a:"💭 考えています…"}; list.push(p); drawQA(); qa.lastElementChild.scrollIntoView({block:"nearest"});
+    // これまでの解説と質問のやり取りを踏まえて答える
+    const msgs = [{role:"system", content:"あなたは日本人の社会人に英語を教える講師です。英文1文についての解説の続きで、学習者の質問に日本語で短く（200字以内）わかりやすく答えます。マークダウン記号は使わない。必要なら短い例文を1〜2個付ける。"},
+      {role:"user", content:userMsg}, {role:"assistant", content:EX[x.en] || ""}];
+    list.slice(0,-1).forEach(o=>{ msgs.push({role:"user", content:o.q}, {role:"assistant", content:o.a}); });
+    msgs.push({role:"user", content:q});
+    try{ p.a = await aiChat(msgs); }catch(e){ p.a = "答えられませんでした：" + (e.message||e); drawQA(); list.pop(); return; }
+    LS.set("ll_explain_qa", EXQ); drawQA();
+  };
+  $("#exAsk").onclick = ask;
+  $("#exQ").onkeydown = e=>{ if(e.key === "Enter"){ e.preventDefault(); ask(); } };
 };
 $("#nowEn").onclick = e=>{
   const w = e.target.closest(".w"); if(w){ lookWord(w); return; }
