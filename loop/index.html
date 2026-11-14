@@ -30,6 +30,12 @@
   .item .t{flex:1;min-width:0}.item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .pill{display:inline-block;padding:1px 8px;border-radius:99px;background:#25303a;font-size:12px;color:var(--sub);margin-right:4px}
   .ops button{padding:6px 9px;font-size:13px;border-radius:7px;border:1px solid var(--line);background:#25303a;color:var(--tx)}
+  #studyCard .big{font-size:16px;font-weight:700;white-space:nowrap}
+  #studyCard .bars{display:flex;align-items:flex-end;gap:3px;height:70px;margin-top:8px}
+  #studyCard .bars div{flex:1;background:#2b8fd6;border-radius:3px 3px 0 0;min-height:2px;position:relative}
+  #studyCard .bars div.today{background:#ffd23f}
+  #studyCard .lbl{display:flex;gap:3px;font-size:10px;color:var(--sub)}
+  #studyCard .lbl span{flex:1;text-align:center}
   #title{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
   #titleRow{display:flex;align-items:center;gap:8px;position:sticky;top:var(--hh,60px);z-index:4;background:var(--card);padding:6px 0;margin:-6px 0 0}
   #mini{display:flex;gap:6px;flex:0 0 auto}
@@ -71,6 +77,7 @@
 
 <!-- ===== ライブラリ ===== -->
 <section id="lib" class="on">
+  <div class="card" id="studyCard"></div>
   <div class="card">
     <div class="row">
       <input id="q" placeholder="🔍 タイトル・タグ・スクリプトで検索">
@@ -226,7 +233,7 @@ let metas = [], tagFilter = "", editing = null;
 function cleanName(n){ return n.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s*\(\d+\)$/, "").trim(); }
 function guessTag(n){ if(/bbc|6.?minute|global.?news|learning.?english/i.test(n)) return "BBC"; if(/podcast/i.test(n)) return "ポッドキャスト"; return ""; }
 function mediaDuration(url){ return new Promise(res=>{ const a = new Audio(); a.preload = "metadata"; a.onloadedmetadata = ()=>res(a.duration||0); a.onerror = ()=>res(0); a.src = url; setTimeout(()=>res(0), 8000); }); }
-async function loadLib(){ metas = (await DB.all("meta")) || []; renderLib(); }
+async function loadLib(){ metas = (await DB.all("meta")) || []; renderLib(); try{ renderStudy(); }catch(e){} }
 function renderLib(){
   const tags = [...new Set(metas.map(m=>m.tag).filter(Boolean))].sort();
   $("#tags").innerHTML = ['<span class="chip'+(tagFilter===""?" on":"")+'" data-t="">すべて</span>'].concat(tags.map(t=>'<span class="chip'+(tagFilter===t?" on":"")+'" data-t="'+esc(t)+'">'+esc(t)+'</span>')).join("");
@@ -239,7 +246,7 @@ function renderLib(){
       <div class="ops" style="display:flex;flex-direction:column;gap:4px"><button data-save="${m.id}">保存</button><button data-cancel="1">戻る</button></div></div>`;
     const pct = m.duration ? Math.round((m.lastPos||0)/m.duration*100) : 0;
     return `<div class="item"><div class="t" data-open="${m.id}" style="cursor:pointer"><b>${/^video/.test(m.type)?"🎬 ":"🎧 "}${esc(m.title)}</b>
-      <span class="pill">${fmt(m.duration)}</span>${m.tag?'<span class="pill">'+esc(m.tag)+'</span>':""}${m.script?'<span class="pill">📝 スクリプト</span>':""}${pct?'<span class="pill">'+pct+'%</span>':""}<div class="small" style="margin-top:2px">元のファイル：${esc(m.name||"")}${m.where?"（"+esc(m.where)+"）":""}</div></div>
+      <span class="pill">${fmt(m.duration)}</span>${m.tag?'<span class="pill">'+esc(m.tag)+'</span>':""}${m.script?'<span class="pill">📝 スクリプト</span>':""}${pct?'<span class="pill">'+pct+'%</span>':""}${(()=>{ try{ const t = ST.files[m.id]; return t >= 60 ? '<span class="pill">⏱ ' + fmtT(t) + '</span>' : ""; }catch(e){ return ""; } })()}<div class="small" style="margin-top:2px">元のファイル：${esc(m.name||"")}${m.where?"（"+esc(m.where)+"）":""}</div></div>
       <div class="ops" style="display:flex;gap:4px"><button data-edit="${m.id}">✏️</button><button data-del="${m.id}">🗑</button></div></div>`;
   }).join("") + '<datalist id="tagList">' + tags.map(t=>'<option value="'+esc(t)+'">').join("") + '<option value="BBC"><option value="ニュース"><option value="商談"><option value="ポッドキャスト"></datalist>';
 }
@@ -397,6 +404,47 @@ function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); 
 let userPaused = true, lastRecT = 0;
 function userPause(){ userPaused = true; au.pause(); }
 au.addEventListener("play", ()=>{ userPaused = false; });
+/* ---------- 勉強時間の記録（再生している時間を、日ごと・ファイルごとに数える） ---------- */
+const ST = LS.get("ll_study", {days:{}, files:{}});
+let stLast = 0;
+function dayKey(d){ d = d || new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+function stTick(){
+  const now = Date.now();
+  if(!au.paused && stLast){
+    const sec = Math.min(5, (now - stLast)/1000);   // 間が空いたとき（スリープなど）は数えすぎない
+    const k = dayKey(); ST.days[k] = (ST.days[k]||0) + sec;
+    if(cur){ ST.files[cur.id] = (ST.files[cur.id]||0) + sec; }
+  }
+  stLast = au.paused ? 0 : now;
+}
+setInterval(()=>{ stTick(); }, 1000);
+setInterval(()=>{ LS.set("ll_study", ST); }, 15000);
+au.addEventListener("pause", ()=>{ stTick(); LS.set("ll_study", ST); });
+addEventListener("pagehide", ()=>{ stTick(); LS.set("ll_study", ST); });
+function fmtT(sec){ sec = Math.round(sec||0); const h = Math.floor(sec/3600), m = Math.floor(sec%3600/60); return h ? `${h}時間${m}分` : `${m}分`; }
+function renderStudy(){
+  const el = $("#studyCard"); if(!el) return;
+  const days = ST.days, today = dayKey();
+  let total = 0, week = 0, month = 0, streak = 0;
+  for(const k in days) total += days[k];
+  const d0 = new Date();
+  for(let i=0;i<7;i++){ const d = new Date(d0); d.setDate(d.getDate()-i); week += days[dayKey(d)]||0; }
+  const ym = today.slice(0,7); for(const k in days) if(k.startsWith(ym)) month += days[k];
+  for(let i=0;;i++){ const d = new Date(d0); d.setDate(d.getDate()-i); const v = days[dayKey(d)]||0; if(v >= 60) streak++; else if(i > 0) break; if(i > 400) break; }
+  const last = []; for(let i=13;i>=0;i--){ const d = new Date(d0); d.setDate(d.getDate()-i); last.push({k:dayKey(d), d, v:days[dayKey(d)]||0}); }
+  const mx = Math.max(600, ...last.map(x=>x.v));
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:baseline"><b>📊 勉強時間</b><span class="small">連続 ${streak}日</span></div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px;text-align:center">
+      <div><div class="small">今日</div><div class="big">${fmtT(days[today])}</div></div>
+      <div><div class="small">7日間</div><div class="big">${fmtT(week)}</div></div>
+      <div><div class="small">今月</div><div class="big">${fmtT(month)}</div></div>
+      <div><div class="small">合計</div><div class="big">${fmtT(total)}</div></div></div>
+    <div class="bars">${last.map(x=>`<div class="${x.k===today?"today":""}" style="height:${Math.round(x.v/mx*100)}%" title="${x.k} ${fmtT(x.v)}"></div>`).join("")}</div>
+    <div class="lbl">${last.map(x=>`<span>${x.d.getDate()}</span>`).join("")}</div>
+    <div class="small" style="margin-top:4px">再生している時間を数えています（繰り返しも含む）。棒は最近14日分。</div>`;
+}
+setInterval(()=>{ if($("#lib").classList.contains("on")) renderStudy(); }, 10000);
+setTimeout(()=>{ try{ renderStudy(); renderLib(); }catch(e){} }, 0);
 // 自分で止めていないのに止まったとき（ナビの案内・マイクの切り替えなど）は再生に戻す。ただし10秒に3回まで
 let autoResumes = [];
 au.addEventListener("pause", ()=>{
