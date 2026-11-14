@@ -149,6 +149,36 @@
 
 <!-- ===== 設定 ===== -->
 <section id="set">
+  <div class="card"><b>📖 このアプリの説明</b><div id="appDesc" class="small" style="white-space:pre-wrap;max-height:240px;overflow:auto;margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:8px">【ループリスニング】使い方
+https://naachi0116-droid.github.io/Listening/loop/
+
+英語の音声（ポッドキャスト、ニュース、会話など）を1文ずつくり返し聞いて、聞き取りを鍛えるアプリです。スマホのChromeで開いて使います（Chromeの「⋮」→「ホーム画面に追加」でアプリのように置けます）。
+
+■ 最初の準備
+1. 「設定」タブにOpenAIのAPIキーを入れて保存（スクリプト作り・和訳・解説に使います）
+2. 「ライブラリ」タブの「＋ 追加」で、スマホの中の音声・動画ファイル（mp3など）を選ぶ
+3. ファイルを開いて「📝 スクリプト」を押す（数分で、英文・和訳・1文ごとの区切りができます）
+
+■ 聞き方
+・「🔁 区切りループ」：今の1文をくり返します
+・「🔂 通しリピート」：最初から最後まで通して流します
+・⏮ ⏭：前／次の文へ（題名の横の小さなボタンでも同じ）
+・🐢 −0.1／🐇 ＋0.1：速さを変える
+・音声は画面を消しても、車のBluetoothでも流れます
+
+■ わからないとき
+・英文をタップ：和訳の表示／非表示
+・英文の単語をタップ：その文の中での意味
+・「🧩 この文を詳しく解説」：構文・語句・訳をAIが解説。下の欄で続けて質問できます（キーボードのマイクで音声入力も可）
+
+■ 記録
+・「ライブラリ」の上に、今日・7日間・今月・合計の勉強時間とグラフが出ます
+
+■ 料金の目安（OpenAIのAPI）
+・スクリプト作り：30分の音声で30〜40円
+・解説・質問：1回1円前後／単語の意味：1回0.1円以下（同じものは2回目から無料）
+
+※音声ファイル・スクリプト・記録は、それぞれのスマホの中に保存されます。</div><button class="btn" id="copyDesc" type="button" style="width:100%">📋 説明をコピー（LINEやメールに貼れます）</button></div>
   <div class="card">
     <label>OpenAI APIキー（スクリプト作成・和訳に使用）</label>
     <input id="sKey" type="password" placeholder="sk-...">
@@ -404,6 +434,7 @@ function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); 
 let userPaused = true, lastRecT = 0;
 function userPause(){ userPaused = true; au.pause(); }
 au.addEventListener("play", ()=>{ userPaused = false; });
+$("#copyDesc").onclick = async ()=>{ const t = $("#appDesc").textContent; try{ await navigator.clipboard.writeText(t); toast("説明をコピーしました"); }catch(e){ prompt("下の文字を全部選んでコピーしてください", t); } };
 /* ---------- 勉強時間の記録（再生している時間を、日ごと・ファイルごとに数える） ---------- */
 const ST = LS.get("ll_study", {days:{}, files:{}});
 let stLast = 0;
