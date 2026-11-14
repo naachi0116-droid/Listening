@@ -43,6 +43,8 @@
   #nowEn .w.on{background:#2f6fb3}
   #wordBox{display:none;margin:8px 0;padding:10px 12px;border-radius:12px;background:#22344a;border:1px solid #3b5f8a;font-size:16px;line-height:1.5}
   #wordBox b{font-size:18px}
+  #explainBox{display:none;margin:8px 0;padding:12px;border-radius:12px;background:#1f2d22;border:1px solid #3d6b47;font-size:15.5px;line-height:1.65;white-space:pre-wrap}
+  #explainBox .wx{float:right;opacity:.7;padding:0 4px;cursor:pointer}
   #wordBox .wx{float:right;opacity:.7;padding:0 4px;cursor:pointer}
   #nowJa{font-size:15px;color:var(--sub);min-height:22px}
   .scr{max-height:46vh;overflow:auto;margin-top:6px;position:relative}
@@ -84,6 +86,7 @@
     <canvas id="zoom"></canvas>
     <div class="time"><span id="tCur">0:00</span><span id="segInfo"></span><span id="tDur">0:00</span></div>
     <div id="nowEn"></div><div id="wordBox"></div><div id="nowJa"></div>
+    <button class="btn" id="explainBtn" type="button" style="margin-top:8px;width:100%">🧩 この文を詳しく解説（構文・意味）</button><div id="explainBox"></div>
     <div class="grid g5">
       <button class="btn" id="bPrev">⏮</button>
       <button class="btn" id="bBack">−5秒</button>
@@ -428,7 +431,7 @@ let jaOpen = S.jaNow !== false, curK = -1;
 function showNowJa(){ const sc = cur && cur.script; $("#nowJa").textContent = (jaOpen && sc && sc[curK]) ? (sc[curK].ja || "（和訳なし）") : ""; }
 // 英文を単語ごとに分けて表示。単語をタップすると意味を出す（単語以外の所をタップすると和訳の表示を切り替え）
 function setNowEn(t){
-  const box = $("#nowEn"); if(box.dataset.t === t) return; box.dataset.t = t; $("#wordBox").style.display = "none";
+  const box = $("#nowEn"); if(box.dataset.t === t) return; box.dataset.t = t; $("#wordBox").style.display = "none"; $("#explainBox").style.display = "none";
   box.innerHTML = (t||"").split(/(\s+)/).map(p=>/\S/.test(p) ? p.replace(/^([^A-Za-z']*)([A-Za-z][A-Za-z'’-]*)?(.*)$/, (m,a,w,b)=> esc(a) + (w ? `<span class="w">${esc(w)}</span>` : "") + esc(b)) : p).join("");
 }
 const WD = LS.get("ll_words", {});   // 調べた単語（同じ単語・同じ文ならAIに聞き直さない）
@@ -451,6 +454,28 @@ async function lookWord(el){
     WD[key] = o; LS.set("ll_words", WD); show(o);
   }catch(e){ box.textContent = "調べられませんでした：" + (e.message||e); }
 }
+// 今の文を、前後の文も見ながらAIが詳しく解説（構文・語句・訳）。一度解説した文は保存して使い回す
+const EX = LS.get("ll_explain", {});
+$("#explainBtn").onclick = async ()=>{
+  const sc = cur && cur.script; if(!sc || curK < 0 || !sc[curK]){ toast("解説する文がありません（スクリプトのある所で押してください）"); return; }
+  const x = sc[curK], box = $("#explainBox");
+  try{ au.pause(); }catch(e){}   // 読むあいだは止める
+  box.style.display = "block";
+  const draw = t=>{ box.innerHTML = '<span class="wx">✕</span>' + esc(t); box.querySelector(".wx").onclick = ()=>{ box.style.display = "none"; }; };
+  if(EX[x.en]){ draw(EX[x.en]); return; }
+  if(!S.key){ draw("解説にはOpenAIのAPIキーが要ります（設定で入れてください）"); return; }
+  draw("🧩 解説を作っています…（5〜10秒）");
+  const ctx = [sc[curK-1], sc[curK+1]].filter(Boolean).map(y=>y.en);
+  try{
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {method:"POST", headers:{Authorization:"Bearer "+S.key, "Content-Type":"application/json"},
+      body:JSON.stringify({model:"gpt-4.1", temperature:0.2,
+        messages:[{role:"system", content:"あなたは日本人の社会人に英語を教える講師です。英文1文を、日本語でわかりやすく解説します。マークダウン記号（#や*）は使わず、次の見出しで書いてください。\n【構文】文の骨組み（主語・動詞・目的語など、節や句のまとまり）を、/ で区切った英文と一緒に示す。\n【語句】難しい語・熟語・句動詞を「英語：意味」で3〜6個。\n【直訳】\n【自然な訳】\n【ポイント】聞き取りや使い方のコツを1〜2行。\n全体で400字以内。"},
+                  {role:"user", content:"解説する文：" + x.en + (ctx.length ? "\n（参考：前後の文）" + ctx.join(" / ") : "")}]})});
+    if(!r.ok) throw new Error("OpenAI " + r.status);
+    const j = await r.json(); const t = j.choices[0].message.content.trim();
+    EX[x.en] = t; LS.set("ll_explain", EX); draw(t);
+  }catch(e){ draw("解説できませんでした：" + (e.message||e)); }
+};
 $("#nowEn").onclick = e=>{
   const w = e.target.closest(".w"); if(w){ lookWord(w); return; }
   if(curK < 0) return; jaOpen = !jaOpen; S.jaNow = jaOpen; saveS(); showNowJa(); };
