@@ -393,22 +393,6 @@ function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); 
 let userPaused = true, lastRecT = 0;
 function userPause(){ userPaused = true; au.pause(); }
 au.addEventListener("play", ()=>{ userPaused = false; });
-// 再生中は画面を消さない（繰り返し聞いているあいだに画面が暗くならないように）
-let wakeLk = null;
-async function keepScreen(on){
-  try{
-    if(on && !wakeLk && document.visibilityState === "visible"){
-      if(!navigator.wakeLock) throw new Error("このブラウザは対応していません");
-      wakeLk = await navigator.wakeLock.request("screen");
-      wakeLk.addEventListener("release", ()=>{ wakeLk = null; });
-      if(!keepScreen.told){ keepScreen.told = true; toast("🔆 再生中は画面を消しません", 2500); }
-    }
-    else if(!on && wakeLk){ await wakeLk.release(); wakeLk = null; }
-  }catch(e){ console.warn(e); if(!keepScreen.err){ keepScreen.err = true; toast("⚠ 画面を点けたままにできません：" + (e.message||e) + "（省電力モードだと止められることがあります）", 6000); } }
-}
-au.addEventListener("play", ()=>keepScreen(true));
-au.addEventListener("pause", ()=>{ setTimeout(()=>{ if(au.paused) keepScreen(false); }, 3000); });
-document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState === "visible" && !au.paused) keepScreen(true); });
 // 自分で止めていないのに止まったとき（ナビの案内・マイクの切り替えなど）は再生に戻す。ただし10秒に3回まで
 let autoResumes = [];
 au.addEventListener("pause", ()=>{
