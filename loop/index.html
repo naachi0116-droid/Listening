@@ -422,7 +422,7 @@ async function fillJa(m){
   finally{ fillingJa = false; }
 }
 function saveMeta(){ if(!cur) return; cur.lastPos = au.currentTime||0; DB.put("meta", cur).catch(()=>{}); }
-function setRate(r){ S.rate = Math.min(2, Math.max(0.5, Math.round(r*100)/100)); au.playbackRate = S.rate; au.preservesPitch = true; $("#bRate").textContent = S.rate.toFixed(2)+"x"; saveS(); }
+function setRate(r){ S.rate = Math.min(2, Math.max(0.2, Math.round(r*100)/100)); au.playbackRate = S.rate; au.preservesPitch = true; $("#bRate").textContent = S.rate.toFixed(2)+"x"; saveS(); }
 $("#bRate").onclick = ()=>setRate(1); $("#bSlow").onclick = ()=>setRate(S.rate-0.1); $("#bFast").onclick = ()=>setRate(S.rate+0.1);
 function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); } else userPause(); }
 // 自分で止めたとき以外の一時停止（音声認識を始め直したときにスマホが勝手に止める）は、すぐ再生に戻す
