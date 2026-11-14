@@ -447,7 +447,7 @@ let jaOpen = S.jaNow !== false, curK = -1;
 function showNowJa(){ const sc = cur && cur.script; $("#nowJa").textContent = (jaOpen && sc && sc[curK]) ? (sc[curK].ja || "（和訳なし）") : ""; }
 // 英文を単語ごとに分けて表示。単語をタップすると意味を出す（単語以外の所をタップすると和訳の表示を切り替え）
 function setNowEn(t){
-  const box = $("#nowEn"); if(box.dataset.t === t) return; box.dataset.t = t; $("#wordBox").style.display = "none"; $("#explainBox").style.display = "none";
+  const box = $("#nowEn"); if(box.dataset.t === t) return; box.dataset.t = t;
   box.innerHTML = (t||"").split(/(\s+)/).map(p=>/\S/.test(p) ? p.replace(/^([^A-Za-z']*)([A-Za-z][A-Za-z'’-]*)?(.*)$/, (m,a,w,b)=> esc(a) + (w ? `<span class="w">${esc(w)}</span>` : "") + esc(b)) : p).join("");
 }
 const WD = LS.get("ll_words", {});   // 調べた単語（同じ単語・同じ文ならAIに聞き直さない）
@@ -475,9 +475,9 @@ const EX = LS.get("ll_explain", {});
 $("#explainBtn").onclick = async ()=>{
   const sc = cur && cur.script; if(!sc || curK < 0 || !sc[curK]){ toast("解説する文がありません（スクリプトのある所で押してください）"); return; }
   const x = sc[curK], box = $("#explainBox");
-  try{ au.pause(); }catch(e){}   // 読むあいだは止める
   box.style.display = "block";
-  const draw = t=>{ box.innerHTML = '<span class="wx">✕</span>' + esc(t); box.querySelector(".wx").onclick = ()=>{ box.style.display = "none"; }; };
+  // 繰り返し再生しても、✕を押すまで消さない（どの文の解説か分かるよう、英文も上に出す）
+  const draw = t=>{ box.innerHTML = '<span class="wx">✕</span><div class="small" style="opacity:.75;margin-bottom:6px">' + esc(x.en) + '</div>' + esc(t); box.querySelector(".wx").onclick = ()=>{ box.style.display = "none"; }; };
   if(EX[x.en]){ draw(EX[x.en]); return; }
   if(!S.key){ draw("解説にはOpenAIのAPIキーが要ります（設定で入れてください）"); return; }
   draw("🧩 解説を作っています…（5〜10秒）");
