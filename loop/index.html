@@ -30,7 +30,11 @@
   .item .t{flex:1;min-width:0}.item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .pill{display:inline-block;padding:1px 8px;border-radius:99px;background:#25303a;font-size:12px;color:var(--sub);margin-right:4px}
   .ops button{padding:6px 9px;font-size:13px;border-radius:7px;border:1px solid var(--line);background:#25303a;color:var(--tx)}
-  #title{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #title{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  #titleRow{display:flex;align-items:center;gap:8px;position:sticky;top:var(--hh,60px);z-index:4;background:var(--card);padding:6px 0;margin:-6px 0 0}
+  #mini{display:flex;gap:6px;flex:0 0 auto}
+  #mini button{width:46px;height:38px;border-radius:9px;border:1px solid var(--line);background:#25303a;color:var(--tx);font-size:17px;padding:0}
+  #mini #mPlay{background:#2b8fd6;border-color:#2b8fd6}
   canvas{width:100%;display:block;border-radius:8px;background:#0a0d10;touch-action:none}
   #wave{height:56px}#zoom{height:90px;margin-top:6px}
   .time{display:flex;justify-content:space-between;font-size:14px;color:var(--sub);margin-top:4px}
@@ -81,7 +85,7 @@
 <!-- ===== 再生 ===== -->
 <section id="play">
   <div class="card">
-    <div id="title">ライブラリからファイルを選んでください</div>
+    <div id="titleRow"><div id="title">ライブラリからファイルを選んでください</div><div id="mini"><button type="button" id="mPrev">⏮</button><button type="button" id="mPlay">▶</button><button type="button" id="mNext">⏭</button></div></div>
     <canvas id="wave"></canvas>
     <canvas id="zoom"></canvas>
     <div class="time"><span id="tCur">0:00</span><span id="segInfo"></span><span id="tDur">0:00</span></div>
@@ -403,8 +407,8 @@ au.addEventListener("pause", ()=>{
   setTimeout(()=>{ if(au.paused && !userPaused && !waiting && !drag) au.play().catch(()=>{}); }, 600);
 });
 $("#bPlay").onclick = togglePlay;
-au.onplay = ()=>{ $("#bPlay").textContent = "⏸"; tick(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "playing"; };
-au.onpause = ()=>{ $("#bPlay").textContent = "▶"; saveMeta(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "paused"; };
+au.onplay = ()=>{ $("#bPlay").textContent = "⏸"; $("#mPlay").textContent = "⏸"; tick(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "playing"; };
+au.onpause = ()=>{ $("#bPlay").textContent = "▶"; $("#mPlay").textContent = "▶"; saveMeta(); if(navigator.mediaSession) navigator.mediaSession.playbackState = "paused"; };
 function seek(t){ if(!cur) return; au.currentTime = Math.max(0, Math.min((cur.duration||au.duration||0)-0.05, t)); loopCount = 0; if(loopOn){ loopR = loopRangeFor(segIndex(au.currentTime + 0.03)); } draw(); }
 $("#bBack").onclick = ()=>seek(au.currentTime-5); $("#bFwd").onclick = ()=>seek(au.currentTime+5);
 $("#bBackS").onclick = ()=>seek(au.currentTime-0.5); $("#bFwdS").onclick = ()=>seek(au.currentTime+0.5);
@@ -412,6 +416,10 @@ function gotoSeg(d, strict){ if(!cur) return; const i = segIndex(au.currentTime)
   if(d<0 && !strict && au.currentTime - s > 1.5) j = i;   // 区切りの途中なら、まずその頭へ
   seek(loopRangeFor(j)[0]); if(au.paused) au.play().catch(()=>{}); }
 $("#bPrev").onclick = ()=>gotoSeg(-1); $("#bNext").onclick = ()=>gotoSeg(+1);
+// 題名の横の小さなボタン（スクロールしても上に残る）
+$("#mPrev").onclick = ()=>gotoSeg(-1); $("#mNext").onclick = ()=>gotoSeg(+1); $("#mPlay").onclick = togglePlay;
+const setHH = ()=>{ const h = document.querySelector("header"); if(h) document.documentElement.style.setProperty("--hh", h.offsetHeight + "px"); };
+setHH(); addEventListener("resize", setHH);
 function setAll(on){ S.all = on; if(on && loopOn){ loopOn = false; S.loop = false; loopR = null; $("#bLoop").classList.remove("on"); } saveS(); $("#bAll").classList.toggle("on", S.all); draw(); }
 $("#bAll").onclick = ()=>{ setAll(!S.all); toast(S.all ? "最後まで通して読み、最初からくり返します" : "通しリピートを止めました"); if(S.all && au.paused && cur) au.play().catch(()=>{}); };
 $("#bLoop").onclick = ()=>{ loopOn = !loopOn; S.loop = loopOn; if(loopOn && S.all){ S.all = false; $("#bAll").classList.remove("on"); } saveS(); loopCount = 0; if(loopOn){ loopR = loopRangeFor(segIndex(au.currentTime)); } $("#bLoop").classList.toggle("on", loopOn); toast(loopOn ? "今の区切りをくり返します" : "ループを止めました"); draw(); };
