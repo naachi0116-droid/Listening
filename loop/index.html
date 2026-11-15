@@ -521,7 +521,7 @@ async function lookWord(el){
   $("#nowEn").querySelectorAll(".w.on").forEach(x=>x.classList.remove("on")); el.classList.add("on");
   const box = $("#wordBox"); box.style.display = "block";
   const key = w.toLowerCase() + "|" + sent;
-  wdK = curK; wdHide = 0;
+  wdK = segNow(); wdHide = 0;
   const show = r=>{ box.innerHTML = `<button type="button" class="wx">✕</button><b>${esc(w)}</b>${r.pron ? "　<span class='small'>" + esc(r.pron) + "</span>" : ""}<br>${esc(r.here||"")}` + (r.base && r.base.toLowerCase() !== w.toLowerCase() ? `<br><span class="small">元の形：${esc(r.base)}${r.general ? "（" + esc(r.general) + "）" : ""}</span>` : (r.general && r.general !== r.here ? `<br><span class="small">ふつうの意味：${esc(r.general)}</span>` : "")); box.querySelector(".wx").addEventListener("click", e=>{ e.preventDefault(); e.stopPropagation(); box.style.display = "none"; el.classList.remove("on"); }); };
   if(WD[key]){ show(WD[key]); return; }
   if(!S.key){ box.textContent = "単語の意味を出すには、設定でOpenAIのAPIキーを入れてください"; return; }
@@ -540,11 +540,12 @@ async function lookWord(el){
 const EX = LS.get("ll_explain", {});
 // 解説は、その文の区切りを繰り返しているあいだは出したまま。別の文に進んだら（1.5秒以上ほかの文になったら）閉じる
 let exK = -1, exHide = 0, wdK = -1, wdHide = 0;
+const segNow = ()=>{ try{ return segIndex(au.currentTime); }catch(e){ return -1; } };
 setInterval(()=>{
   const wb = $("#wordBox");
-  if(wb.style.display !== "none" && wdK >= 0){ if(curK === wdK || curK < 0) wdHide = 0; else if((wdHide += 0.5) >= 1.5){ wb.style.display = "none"; wdK = -1; } }
+  if(wb.style.display !== "none" && wdK >= 0){ if(segNow() === wdK) wdHide = 0; else if((wdHide += 0.5) >= 1.5){ wb.style.display = "none"; wdK = -1; } }
   const box = $("#explainBox"); if(box.style.display === "none" || exK < 0) return;
-  if(curK === exK || curK < 0){ exHide = 0; return; }
+  if(segNow() === exK){ exHide = 0; return; }
   exHide += 0.5; if(exHide >= 1.5 && !box.contains(document.activeElement)){ box.style.display = "none"; exK = -1; }
 }, 500);
 const EXQ = LS.get("ll_explain_qa", {});   // 解説への追加の質問と答え（文ごと）
@@ -560,7 +561,7 @@ $("#explainBtn").onclick = async ()=>{
   const userMsg = "解説する文：" + x.en + (ctx.length ? "\n（参考：前後の文）" + ctx.join(" / ") : "");
   box.style.display = "block";
   // 繰り返し再生しても、✕を押すまで消さない（どの文の解説か分かるよう、英文も上に出す）
-  exK = curK; exHide = 0;
+  exK = segNow(); exHide = 0;
   box.innerHTML = '<button type="button" class="wx">✕</button><div class="small" style="opacity:.75;margin-bottom:6px">' + esc(x.en) + '</div><div id="exBody"></div><div id="exQA"></div>'
     + '<div style="display:flex;gap:6px;margin-top:10px;white-space:normal"><input id="exQ" placeholder="質問する（例：この where の使い方は？）" style="flex:1;min-width:0"><button class="btn" id="exAsk" type="button" style="flex:0 0 auto">送信</button></div>';
   box.querySelector(".wx").addEventListener("click", e=>{ e.preventDefault(); e.stopPropagation(); box.style.display = "none"; exK = -1; });
@@ -758,8 +759,11 @@ function splitPoints(pcm, rate){
 }
 function chunkScore(r){ const s = (r.segments||[]); if(!s.length) return -9; let w = 0, t = 0; for(const x of s){ const d = Math.max(0.1, x.end-x.start); w += d; t += (x.avg_logprob||0)*d; } return t/w; }
 function splitByPunct(text, ws, s0, e0){
+  const ABBR = /\b(U\.S|U\.K|U\.N|E\.U|Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc|e\.g|i\.e|No|Prof|Gen|Sen|Rep|Gov|[A-Z])\./g;
+  text = (text||"").replace(ABBR, m=>m.replace(/\./g, "\u2024"));   // 略語の点は一時的に別の文字にして、文の終わりと間違えない
   const pieces = (text||"").trim().match(/[^.?!…]+[.?!…]+["')\]]*|[^.?!…]+$/g) || [];
-  const clean = pieces.map(x=>x.trim()).filter(Boolean);
+  const clean = pieces.map(x=>x.trim().replace(/\u2024/g, ".")).filter(Boolean);
+  text = text.replace(/\u2024/g, ".");
   // 1文だけのかたまりは、AIが返したかたまりの時刻をそのまま使う（いちばん正確。最初にぴったり合っていた方式）
   if(!ws.length || clean.length <= 1) return [{start: s0, end: e0, text}];
   // 文の単語を、AIが返した「単語ごとの時刻」と1語ずつ突き合わせて、文の始まり・終わりの時刻を正確に決める
@@ -815,7 +819,7 @@ function splitSentences(segsIn){
   for(const s of segsIn){
     const txt = (s.text||"").trim(); if(!txt) continue;
     if(!buf) buf = {s:s.start, e:s.end, en:txt}; else { buf.e = s.end; buf.en += " " + txt; }
-    if(/[.?!…]["')\]]?$/.test(txt) || buf.e - buf.s > 14){ out.push(buf); buf = null; }
+    if((/[.?!…]["')\]]?$/.test(txt) && !/\b(U\.S|U\.K|Mr|Mrs|Ms|Dr|St|[A-Z])\.$/.test(txt)) || buf.e - buf.s > 14){ out.push(buf); buf = null; }
   }
   if(buf) out.push(buf);
   return out.map(x=>({s:Math.round(x.s*100)/100, e:Math.round(x.e*100)/100, en:x.en}));
