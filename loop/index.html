@@ -122,6 +122,7 @@
       <button class="btn" id="bJa">全文和訳 非表示</button>
       <button class="btn" id="bScr">📝 スクリプト</button>
     </div>
+    <label class="btn" style="display:block;width:100%;margin-top:8px;text-align:center">📄 字幕ファイル（.srt / .vtt）からスクリプトを作る<input id="subFile" type="file" accept=".srt,.vtt,.txt,text/*" style="display:none"></label>
     <button class="btn" id="bAutoCut" style="width:100%;margin-top:8px">✂ 区切りを作り直す（文の切れ目＋息つぎ）</button>
     <p class="small" style="margin-top:8px">聞きながら文の切れ目で「＋区切り」を押すと、そこで区切れます。⏮⏭で前後の区切りへ、🔁で今の区切りをくり返します。下の細かい波形をタップすると、その位置に移動します。車のハンドルやイヤホンの「前/次」ボタンでも区切りを移動できます。</p>
   </div>
@@ -908,6 +909,38 @@ async function makeScript(){
   }catch(e){ console.warn(e); setProg(null, ""); toast("作れませんでした：" + (e.message||e), 4000); }
   finally{ busy = false; loadLib(); }
 }
+// 字幕ファイル（YouTubeなどの .srt / .vtt）からスクリプトを作る。音声を聞き取らないので、長い動画でもすぐ・無料（和訳だけAI）
+function parseSubs(t){
+  const toS = x=>{ const m = x.trim().replace(",", ".").split(":").map(Number); return m.length === 3 ? m[0]*3600 + m[1]*60 + m[2] : m[0]*60 + m[1]; };
+  const out = []; let last = "";
+  for(const blk of t.replace(/\r/g, "").split(/\n\s*\n/)){
+    const lines = blk.split("\n"); const k = lines.findIndex(l=>/-->/.test(l)); if(k < 0) continue;
+    const m = lines[k].match(/([\d:.,]+)\s*-->\s*([\d:.,]+)/); if(!m) continue;
+    let txt = lines.slice(k+1).join(" ").replace(/<[^>]+>/g, "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/^\s*(>>|-)\s*/, "").replace(/\s+/g, " ").trim();
+    if(!txt) continue;
+    if(last && txt.startsWith(last)) txt = txt.slice(last.length).trim();   // 自動字幕の「前の行のくり返し」を除く
+    if(!txt || txt === last){ continue; }
+    out.push({start: toS(m[1]), end: toS(m[2]), text: txt}); last = lines.slice(k+1).join(" ").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  }
+  return out;
+}
+$("#subFile").onchange = async e=>{
+  const f = e.target.files[0]; e.target.value = ""; if(!f || !cur) { if(!cur) toast("先にライブラリで動画・音声を開いてください"); return; }
+  const me = cur;
+  try{
+    const segsIn = parseSubs(await f.text());
+    if(!segsIn.length){ toast("字幕が読み取れませんでした（.srt か .vtt のファイルを選んでください）", 4000); return; }
+    setProg(5, "字幕を読み込みました。和訳しています…");
+    const sc = splitSentences(segsIn);
+    await translate(sc);
+    me.jaVer = 2; me.script = sc; me.scrVer = 3;
+    me.markers = smartMarks(sc); me.silSplit = true; me.markVer = 3; if(cur===me){ loopR = null; }
+    await DB.put("meta", me);
+    if(cur===me){ renderScript(); draw(); update(); }
+    setProg(null, sc.length + "文");
+    toast(`字幕から ${sc.length}文のスクリプトを作りました`, 3500);
+  }catch(err){ setProg(null, ""); toast("作れませんでした：" + (err.message||err), 4000); }
+};
 function confirmTwice(btn, label){ if(btn.dataset.sure){ delete btn.dataset.sure; btn.textContent = "📝 スクリプト"; return true; } btn.dataset.sure = "1"; const o = btn.textContent; btn.textContent = label; setTimeout(()=>{ if(btn.dataset.sure){ delete btn.dataset.sure; btn.textContent = o; } }, 3000); return false; }
 function renderScript(){
   lastScrIdx = -1;
