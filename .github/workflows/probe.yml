@@ -1,0 +1,11 @@
+name: probe
+on: workflow_dispatch
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -s "https://itunes.apple.com/lookup?id=135067274" | head -c 800; echo
+          curl -sI -H "Origin: https://naachi0116-droid.github.io" https://podcasts.files.bbci.co.uk/p02nq0gn.rss | grep -i -E "^HTTP|access-control|content-type"
+          U=$(curl -s https://podcasts.files.bbci.co.uk/p02nq0gn.rss | grep -o 'enclosure url="[^"]*"' | head -1 | cut -d'"' -f2); echo "MP3=$U"
+          curl -sIL -H "Origin: https://naachi0116-droid.github.io" "$U" | grep -i -E "^HTTP|access-control|location|content-length"
