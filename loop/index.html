@@ -79,6 +79,8 @@
 <!-- ===== ライブラリ ===== -->
 <section id="lib" class="on">
   <div class="card" id="studyCard"></div>
+  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>📻 BBC Global News Podcast</b><a href="https://podcasts.apple.com/nl/podcast/global-news-podcast/id135067274" target="_blank" class="small" style="color:var(--sub)">Apple Podcasts ↗</a></div>
+    <button class="btn" id="podBtn" type="button" style="width:100%;margin-top:8px">🆕 最新のエピソードを見る</button><div id="podList"></div></div>
   <div class="card">
     <div class="row">
       <input id="q" placeholder="🔍 タイトル・タグ・スクリプトで検索">
@@ -295,19 +297,61 @@ $("#addFile").onchange = async e=>{
   const files = [...e.target.files]; e.target.value = "";
   if(!files.length) return;
   toast(files.length + "件を取り込んでいます…", 6000);
+  await importFiles(files);
+};
+async function importFiles(files, extra){
   let last = null;
   for(const f of files){
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
     const url = URL.createObjectURL(f); const duration = await mediaDuration(url); URL.revokeObjectURL(url);
-    const m = {id, title:cleanName(f.name), tag:guessTag(f.name), name:f.name, type:f.type||"", size:f.size, duration, addedAt:Date.now(), lastPos:0, markers:[], script:null};
+    const m = Object.assign({id, title:cleanName(f.name), tag:guessTag(f.name), name:f.name, type:f.type||"", size:f.size, duration, addedAt:Date.now(), lastPos:0, markers:[], script:null}, extra||{});
     const pend = LS.get("ll_pending", {}), pk = f.name + "|" + f.size;
     if(pend[pk]){ Object.assign(m, pend[pk], {id, name:f.name, size:f.size, type:f.type||pend[pk].type||""}); delete pend[pk]; LS.set("ll_pending", pend); toast("前のスマホの区切り・スクリプトを戻しました", 3000); }
     try{ await DB.put("blobs", f, id); await DB.put("meta", m); last = id; }
     catch(err){ toast("保存できませんでした（容量不足かもしれません）"); console.warn(err); }
   }
   await loadLib();
-  if(last){ editing = last; renderLib(); toast("取り込みました。わかりやすい名前とタグを付けておくと探しやすくなります", 4000); }
-};
+  if(last && !extra){ editing = last; renderLib(); toast("取り込みました。わかりやすい名前とタグを付けておくと探しやすくなります", 4000); }
+  return last;
+}
+
+/* ---------- ポッドキャスト（BBC Global News Podcast） ---------- */
+// 一覧（RSS）はアプリの中で読める。音声は取り込めればそのまま、だめならダウンロードしてから「＋追加」
+const PODS = [{name:"BBC Global News Podcast", rss:"https://podcasts.files.bbci.co.uk/p02nq0gn.rss", page:"https://podcasts.apple.com/nl/podcast/global-news-podcast/id135067274", tag:"BBC"}];
+async function loadPod(i){
+  const p = PODS[i], box = $("#podList"); box.innerHTML = '<p class="small">読み込んでいます…</p>';
+  try{
+    const x = new DOMParser().parseFromString(await (await fetch(p.rss, {cache:"no-store"})).text(), "text/xml");
+    const have = new Set(metas.map(m=>m.podGuid).filter(Boolean));
+    const eps = [...x.querySelectorAll("item")].slice(0, 12).map(it=>({
+      title: it.querySelector("title")?.textContent || "", guid: it.querySelector("guid")?.textContent || "",
+      date: new Date(it.querySelector("pubDate")?.textContent || ""), url: it.querySelector("enclosure")?.getAttribute("url") || "",
+      dur: it.getElementsByTagName("itunes:duration")[0]?.textContent || ""}));
+    POD_EPS = eps.map(e=>Object.assign(e, {tag:p.tag}));
+    box.innerHTML = eps.map((e,k)=>`<div class="item"><div class="t"><b>${esc(e.title)}</b><span class="pill">${e.date.toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",weekday:"short"})}</span>${e.dur ? '<span class="pill">' + esc(fmtDur(e.dur)) + '</span>' : ""}${have.has(e.guid) ? '<span class="pill">✅ 取り込み済み</span>' : ""}</div>
+      <div class="ops"><button data-pod="${k}">${have.has(e.guid) ? "▶ 開く" : "⬇ 取り込む"}</button></div></div>`).join("") || '<p class="small">エピソードが見つかりませんでした</p>';
+  }catch(e){ box.innerHTML = '<p class="small">一覧を読み込めませんでした：' + esc(e.message||String(e)) + '</p>'; }
+}
+let POD_EPS = [];
+function fmtDur(d){ if(/^\d+$/.test(d)){ const n = +d; return Math.floor(n/60) + "分"; } const a = d.split(":").map(Number); return a.length === 3 ? (a[0]*60 + a[1]) + "分" : a[0] + "分"; }
+async function grabPod(k){
+  const e = POD_EPS[k]; if(!e) return;
+  const done = metas.find(m=>m.podGuid === e.guid); if(done){ openItem(done.id); return; }
+  const url = e.url.replace(/^http:\/\//, "https://").replace("/proto/http/", "/proto/https/");
+  toast("ダウンロードしています…（15MBほど）", 8000);
+  try{
+    const r = await fetch(url); if(!r.ok) throw new Error("HTTP " + r.status);
+    const b = await r.blob();
+    const d = e.date, nm = `BBC-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}.mp3`;
+    const id = await importFiles([new File([b], nm, {type:"audio/mpeg"})], {title: e.title, tag: e.tag, podGuid: e.guid});
+    toast("取り込みました。開いて「📝 スクリプト」を押してください", 4000); loadPod(0);
+    if(id) openItem(id);
+  }catch(err){
+    // ブラウザの制限で直接取り込めないときは、ふつうにダウンロードしてから「＋追加」で入れてもらう
+    toast("アプリに直接は取り込めませんでした。ダウンロードを開くので、保存後に「＋ 追加」で選んでください", 7000);
+    window.open(url, "_blank");
+  }
+}
 
 /* ---------- 再生 ---------- */
 const au = $("#au");
@@ -430,6 +474,8 @@ function togglePlay(){ if(!cur) return; if(au.paused){ au.play().catch(()=>{}); 
 let userPaused = true, lastRecT = 0;
 function userPause(){ userPaused = true; au.pause(); }
 au.addEventListener("play", ()=>{ userPaused = false; });
+$("#podBtn").onclick = ()=>loadPod(0);
+$("#podList").onclick = e=>{ const b = e.target.closest("[data-pod]"); if(b) grabPod(+b.dataset.pod); };
 $("#copyDesc").onclick = async ()=>{ const t = $("#appDesc").textContent; try{ await navigator.clipboard.writeText(t); toast("説明をコピーしました"); }catch(e){ prompt("下の文字を全部選んでコピーしてください", t); } };
 /* ---------- 勉強時間の記録（再生している時間を、日ごと・ファイルごとに数える） ---------- */
 const ST = LS.get("ll_study", {days:{}, files:{}});
