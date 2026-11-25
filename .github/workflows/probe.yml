@@ -5,7 +5,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          U=$(curl -s https://podcasts.files.bbci.co.uk/p02nq0gn.rss | grep -o 'enclosure url="[^"]*"' | head -1 | cut -d'"' -f2); echo "ENC=$U"
-          curl -s -o /dev/null -w "first=%{http_code} redir=%{redirect_url}\n" "$U" | cut -c1-120
-          L=$(curl -s -o /dev/null -w "%{redirect_url}" "$U"); H=$(echo "$L" | sed 's#^http://#https://#')
-          curl -sIL -H "Origin: https://x.github.io" "$H" | grep -i -E "^HTTP|^location|access-control-allow-origin|content-length" | cut -c1-90
+          U=$(curl -s https://podcasts.files.bbci.co.uk/p02nq0gn.rss | grep -o 'enclosure url="[^"]*"' | head -1 | cut -d'"' -f2)
+          H=$(echo "$U" | sed -e 's#^http://#https://#' -e 's#/proto/http/#/proto/https/#'); echo "H=$H"
+          curl -sIL -H "Origin: https://x.github.io" "$H" | grep -i -E "^HTTP|^location|access-control-allow-origin|content-length" | cut -c1-80
