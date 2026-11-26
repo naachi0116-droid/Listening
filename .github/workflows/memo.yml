@@ -1,0 +1,25 @@
+name: Voice Memo APK
+on:
+  push:
+    paths: ["memo/**", ".github/workflows/memo.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.7" }
+      - name: Build
+        env: { BUILD_NO: "${{ github.run_number }}" }
+        run: gradle -p memo assembleRelease --no-daemon --stacktrace
+      - name: Publish APK
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          cp memo/app/build/outputs/apk/release/app-release.apk voice-memo.apk
+          gh release delete memo-latest --cleanup-tag -y || true
+          gh release create memo-latest voice-memo.apk --title "ボイスメモ（最新）" --notes "ビルド ${{ github.run_number }}" --latest=false
