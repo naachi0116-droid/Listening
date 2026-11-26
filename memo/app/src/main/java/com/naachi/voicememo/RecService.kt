@@ -18,7 +18,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** 録音の本体。画面を消しても、ほかのアプリを使っても録音を続ける（マイクを使うサービス） */
+/** 録音の本体。画面を消すか、アプリを閉じると止めて保存する */
 class RecService : Service() {
     companion object {
         @Volatile var recording = false
@@ -104,5 +104,10 @@ class RecService : Service() {
         changed()
     }
 
-    override fun onDestroy() { if (recording) stopRec(); super.onDestroy() }
+    // 画面が消えたら止めて保存（アプリの画面が出ていないときの念のため）
+    private val screenOff = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: Intent?) { if (recording) stopRec() }
+    }
+    override fun onCreate() { super.onCreate(); registerReceiver(screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF)) }
+    override fun onDestroy() { try { unregisterReceiver(screenOff) } catch (_: Exception) {}; if (recording) stopRec(); super.onDestroy() }
 }

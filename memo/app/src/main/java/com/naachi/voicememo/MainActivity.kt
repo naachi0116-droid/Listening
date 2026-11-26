@@ -64,7 +64,7 @@ class MainActivity : Activity() {
         bigBtn = Button(this).apply { textSize = 24f; setOnClickListener { toggle() } }
         col.addView(bigBtn, LinearLayout.LayoutParams(MATCH_PARENT, 220))
         col.addView(tv(14f, Color.GRAY).apply {
-            text = "アイコンを押すと、すぐ録音が始まります。画面を消しても、ほかのアプリを使っても録音は続きます（通知の「■ 停止して保存」でも止められます）。\n保存先：スマホの「Recordings/ボイスメモ」フォルダ"
+            text = "アイコンを押すと、すぐ録音が始まります。画面を消すか、アプリを閉じると、録音を止めて保存します。\n保存先：スマホの「Recordings/ボイスメモ」フォルダ"
             setPadding(0, 20, 0, 30)
         })
         col.addView(tv(18f, Color.LTGRAY, true).apply { text = "保存したメモ" })
@@ -170,5 +170,10 @@ class MainActivity : Activity() {
 
     override fun onResume() { super.onResume(); RecService.listeners.add(refresh); ui.post(tick); render() }
     override fun onPause() { RecService.listeners.remove(refresh); ui.removeCallbacks(tick); super.onPause() }
+    // 画面を消したり、アプリを閉じたり（ホームに戻る・ほかのアプリに切り替える）したら、録音を止めて保存する
+    override fun onStop() {
+        if (RecService.recording && !isChangingConfigurations) startService(Intent(this, RecService::class.java).setAction("stop"))
+        super.onStop()
+    }
     override fun onDestroy() { stopPlay(); super.onDestroy() }
 }
