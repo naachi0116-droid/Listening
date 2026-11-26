@@ -275,13 +275,17 @@ function renderLib(){
     const pct = m.duration ? Math.round((m.lastPos||0)/m.duration*100) : 0;
     return `<div class="item"><div class="t" data-open="${m.id}" style="cursor:pointer"><b>${/^video/.test(m.type)?"🎬 ":"🎧 "}${esc(m.title)}</b>
       <span class="pill">${fmt(m.duration)}</span>${m.tag?'<span class="pill">'+esc(m.tag)+'</span>':""}${m.script?'<span class="pill">📝 スクリプト</span>':""}${pct?'<span class="pill">'+pct+'%</span>':""}${(()=>{ try{ const t = ST.files[m.id]; return t >= 60 ? '<span class="pill">⏱ ' + fmtT(t) + '</span>' : ""; }catch(e){ return ""; } })()}<div class="small" style="margin-top:2px">元のファイル：${esc(m.name||"")}${m.where?"（"+esc(m.where)+"）":""}</div></div>
-      <div class="ops" style="display:flex;gap:4px"><button data-edit="${m.id}">✏️</button><button data-del="${m.id}">🗑</button></div></div>`;
+      <div class="ops" style="display:flex;gap:4px">${(m.duration||0) > 20*60 ? `<button data-split="${m.id}" title="15分ずつに分ける">✂</button>` : ""}<button data-edit="${m.id}">✏️</button><button data-del="${m.id}">🗑</button></div></div>`;
   }).join("") + '<datalist id="tagList">' + tags.map(t=>'<option value="'+esc(t)+'">').join("") + '<option value="BBC"><option value="ニュース"><option value="商談"><option value="ポッドキャスト"></datalist>';
 }
 $("#q").oninput = renderLib;
 $("#tags").onclick = e=>{ const c = e.target.closest(".chip"); if(!c) return; tagFilter = c.dataset.t; renderLib(); };
 $("#list").onclick = async e=>{
-  const b = e.target.closest("[data-open],[data-edit],[data-del],[data-save],[data-cancel]"); if(!b) return;
+  const b = e.target.closest("[data-open],[data-edit],[data-del],[data-save],[data-cancel],[data-split]"); if(!b) return;
+  if(b.dataset.split){
+    if(!b.dataset.sure){ b.dataset.sure = "1"; b.textContent = "15分ずつ分ける？"; setTimeout(()=>{ delete b.dataset.sure; b.textContent = "✂"; }, 3500); return; }
+    return splitItem(b.dataset.split);
+  }
   if(b.dataset.open) return openItem(b.dataset.open);
   if(b.dataset.edit){ editing = b.dataset.edit; renderLib(); setTimeout(()=>$("#eTitle") && $("#eTitle").focus(), 50); return; }
   if(b.dataset.cancel){ editing = null; renderLib(); return; }
@@ -313,6 +317,85 @@ async function importFiles(files, extra){
   await loadLib();
   if(last && !extra){ editing = last; renderLib(); toast("取り込みました。わかりやすい名前とタグを付けておくと探しやすくなります", 4000); }
   return last;
+}
+
+/* ---------- 長いファイルを15分ずつに分ける ----------
+   動画（mp4/m4a/mov）は音声だけを取り出し、作り直さずにそのまま切り分ける（音質そのまま・軽い）。mp3 はファイルを切り分ける。
+   どちらもファイル全体を展開しないので、2時間の動画でもスマホのメモリが足りなくならない */
+function loadScriptOnce(src){ return new Promise((res, rej)=>{ if(document.querySelector(`script[src="${src}"]`)) return res(); const t = document.createElement("script"); t.src = src; t.onload = res; t.onerror = ()=>rej(new Error("部品を読み込めません")); document.head.appendChild(t); }); }
+async function splitMp4(blob, partSec, onPart){
+  await loadScriptOnce("mp4box.min.js");
+  const f = MP4Box.createFile(); let info = null, err = null;
+  f.onReady = i=>{ info = i; }; f.onError = e=>{ err = e; };
+  let pos = 0; const CH = 4*1024*1024;
+  while(!info && !err && pos < blob.size){
+    const buf = await blob.slice(pos, pos + CH).arrayBuffer(); buf.fileStart = pos;
+    const nx = f.appendBuffer(buf); pos = (nx && nx > pos) ? nx : pos + CH;
+  }
+  if(!info) throw new Error(err || "ファイルの中身を読めませんでした");
+  const at = info.audioTracks[0]; if(!at) throw new Error("音声が入っていません");
+  const trak = f.getTrackById(at.id), samples = trak.samples, ts = trak.mdia.mdhd.timescale;
+  const entry = trak.mdia.minf.stbl.stsd.entries[0];
+  const total = samples.length ? (samples[samples.length-1].cts + samples[samples.length-1].duration) / ts : 0;
+  const nParts = Math.max(1, Math.ceil(total / partSec - 0.05));
+  let k = 0;
+  for(let p=0; p<nParts; p++){
+    const out = MP4Box.createFile();
+    const tid = out.addTrack({type: entry.type || "mp4a", timescale: ts, samplerate: at.audio.sample_rate, channel_count: at.audio.channel_count, samplesize: 16, hdlr: "soun", name: "audio", description: entry.esds, media_duration: 0});
+    const endT = (p+1) * partSec * ts; let base = null;
+    while(k < samples.length && (samples[k].cts < endT || p === nParts-1)){
+      // 続いて並んでいるサンプルはまとめて読む
+      let j = k, end = samples[k].offset + samples[k].size;
+      while(j+1 < samples.length && samples[j+1].offset === end && (samples[j+1].cts < endT || p === nParts-1) && end - samples[k].offset < 2*1024*1024){ j++; end += samples[j].size; }
+      const buf = new Uint8Array(await blob.slice(samples[k].offset, end).arrayBuffer());
+      for(let q=k; q<=j; q++){
+        const sm = samples[q]; if(base === null) base = sm.dts;
+        out.addSample(tid, buf.slice(sm.offset - samples[k].offset, sm.offset - samples[k].offset + sm.size), {duration: sm.duration, dts: sm.dts - base, cts: sm.cts - base, is_sync: true});
+      }
+      k = j + 1;
+    }
+    await onPart(new Blob([out.getBuffer()], {type:"audio/mp4"}), p, nParts, "m4a");
+  }
+}
+async function splitMp3(blob, durSec, partSec, onPart){
+  const nParts = Math.max(1, Math.ceil(durSec / partSec - 0.05));
+  // 先頭の「全体の長さ」を書いた見出し（Xing/Info）は外す（1つめの部分の長さが全体の長さに見えてしまうため）
+  let first = 0;
+  { const h = new Uint8Array(await blob.slice(0, 16384).arrayBuffer());
+    if(h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) first = 10 + ((h[6]&0x7f)<<21 | (h[7]&0x7f)<<14 | (h[8]&0x7f)<<7 | (h[9]&0x7f));
+    const t = String.fromCharCode(...h.slice(first, first + 200));
+    if(/Xing|Info|VBRI/.test(t)){ let o = first + 4; for(; o < h.length-1; o++){ if(h[o] === 0xFF && (h[o+1] & 0xE0) === 0xE0 && (h[o+1] & 0x06) !== 0) break; } first = o; } }
+  const cuts = [first];
+  for(let p=1; p<nParts; p++){
+    let at = Math.floor(blob.size * p * partSec / durSec);
+    const b = new Uint8Array(await blob.slice(at, at + 8192).arrayBuffer());
+    let off = 0; for(; off < b.length-1; off++){ if(b[off] === 0xFF && (b[off+1] & 0xE0) === 0xE0 && (b[off+1] & 0x06) !== 0) break; }
+    cuts.push(at + off);
+  }
+  cuts.push(blob.size);
+  for(let p=0; p<nParts; p++) await onPart(blob.slice(cuts[p], cuts[p+1], "audio/mpeg"), p, nParts, "mp3");
+}
+async function splitItem(id){
+  const m = metas.find(x=>x.id === id); if(!m) return;
+  const blob = await DB.get("blobs", id); if(!blob){ toast("ファイルが見つかりません"); return; }
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+  const isMp4 = String.fromCharCode(...head.slice(4, 8)) === "ftyp";
+  const isMp3 = (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) || (head[0] === 0xFF && (head[1] & 0xE0) === 0xE0) || /mpeg|mp3/.test(m.type||"");
+  if(!isMp4 && !isMp3){ toast("このファイルの形式（" + (m.type||"不明") + "）は分けられません。mp4 か mp3 にしてください", 5000); return; }
+  toast("15分ずつに分けています…（数十秒〜数分）", 8000);
+  const made = [];
+  const onPart = async (b, p, n, ext)=>{
+    setProg(Math.round((p+1)/n*100), `分けています… ${p+1}/${n}`);
+    const nm = `${m.title} (${p+1}-${n}).${ext}`;
+    const nid = await importFiles([new File([b], nm, {type: b.type})], {title: `${m.title}（${p+1}/${n}）`, tag: m.tag || "", partOf: id});
+    if(nid) made.push(nid);
+  };
+  try{
+    if(isMp4) await splitMp4(blob, 15*60, onPart); else await splitMp3(blob, m.duration || 0, 15*60, onPart);
+    setProg(null, "");
+    toast(`${made.length}つに分けて保存しました。それぞれ開いて「📝 スクリプト」を押してください（元のファイルは残っています）`, 6000);
+    await loadLib();
+  }catch(e){ setProg(null, ""); console.warn(e); toast("分けられませんでした：" + (e.message||e), 6000); }
 }
 
 /* ---------- ポッドキャスト（BBC Global News Podcast） ---------- */
@@ -952,7 +1035,7 @@ async function makeScript(){
     if(cur===me){ renderScript(); draw(); }
     setProg(null, sc.length + "文");
     toast("スクリプトができました。文ごとに区切りも付けました", 3500);
-  }catch(e){ console.warn(e); setProg(null, ""); toast("作れませんでした：" + (e.message||e), 4000); }
+  }catch(e){ console.warn(e); setProg(null, ""); toast("作れませんでした：" + (e.message||e) + ((me.duration||0) > 20*60 ? "　長いファイルは、ライブラリの ✂ で15分ずつに分けてから作ってください" : ""), 7000); }
   finally{ busy = false; loadLib(); }
 }
 // 字幕ファイル（YouTubeなどの .srt / .vtt）からスクリプトを作る。音声を聞き取らないので、長い動画でもすぐ・無料（和訳だけAI）
