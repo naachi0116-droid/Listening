@@ -27,7 +27,7 @@
   .chip.on{background:var(--ac);color:#04121d;border-color:var(--ac)}
   .item{display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line)}
   .item:last-child{border-bottom:0}
-  .item .t{flex:1;min-width:0}.item .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .t{flex:1;min-width:0}.item .t b{display:block;white-space:normal;word-break:break-word}
   .pill{display:inline-block;padding:1px 8px;border-radius:99px;background:#25303a;font-size:12px;color:var(--sub);margin-right:4px}
   .ops button{padding:6px 9px;font-size:13px;border-radius:7px;border:1px solid var(--line);background:#25303a;color:var(--tx)}
   #studyCard .big{font-size:16px;font-weight:700;white-space:nowrap}
@@ -259,6 +259,8 @@ try{ navigator.storage && navigator.storage.persist && navigator.storage.persist
 
 /* ---------- ライブラリ ---------- */
 let metas = [], tagFilter = "", editing = null;
+// 分けたファイルは「（3/12）」を頭に出す：【3/12】題名
+function numFirst(t){ const x = (t||"").match(/^(.*?)\s*[（(](\d+)\s*\/\s*(\d+)[)）]\s*$/); return x ? `【${x[2]}/${x[3]}】${x[1]}` : (t||""); }
 function cleanName(n){ return n.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").replace(/\s*\(\d+\)$/, "").trim(); }
 function guessTag(n){ if(/bbc|6.?minute|global.?news|learning.?english/i.test(n)) return "BBC"; if(/podcast/i.test(n)) return "ポッドキャスト"; return ""; }
 function mediaDuration(url){ return new Promise(res=>{ const a = new Audio(); a.preload = "metadata"; a.onloadedmetadata = ()=>res(a.duration||0); a.onerror = ()=>res(0); a.src = url; setTimeout(()=>res(0), 8000); }); }
@@ -268,13 +270,13 @@ function renderLib(){
   $("#tags").innerHTML = ['<span class="chip'+(tagFilter===""?" on":"")+'" data-t="">すべて</span>'].concat(tags.map(t=>'<span class="chip'+(tagFilter===t?" on":"")+'" data-t="'+esc(t)+'">'+esc(t)+'</span>')).join("");
   const q = $("#q").value.trim().toLowerCase();
   const list = metas.filter(m=>(!tagFilter || m.tag===tagFilter) && (!q || (m.title+" "+(m.tag||"")+" "+m.name).toLowerCase().includes(q) || (m.script||[]).some(s=>(s.en||"").toLowerCase().includes(q))))
-                    .sort((a,b)=>(b.openedAt||b.addedAt)-(a.openedAt||a.addedAt));
+                    .sort((a,b)=>{ const pn = t=>{ const x = numFirst(t).match(/^【(\d+)\//); return x ? +x[1] : 0; }; if(a.partOf && a.partOf === b.partOf) return pn(a.title) - pn(b.title); return (b.openedAt||b.addedAt)-(a.openedAt||a.addedAt); });
   if(!metas.length){ $("#list").innerHTML = '<p class="small">まだありません。「＋ 追加」から音声や動画のファイルを選んでください（何個でもまとめて選べます）。</p>'; return; }
   $("#list").innerHTML = list.map(m=>{
     if(editing===m.id) return `<div class="item"><div class="t"><label>名前</label><input id="eTitle" value="${esc(m.title)}"><label>タグ</label><input id="eTag" value="${esc(m.tag||"")}" placeholder="BBC、ニュース、商談 など" list="tagList"><label>元のファイルの場所（メモ）</label><input id="eWhere" value="${esc(m.where||"")}" placeholder="例：Googleドライブ／英語学習"></div>
       <div class="ops" style="display:flex;flex-direction:column;gap:4px"><button data-save="${m.id}">保存</button><button data-cancel="1">戻る</button></div></div>`;
     const pct = m.duration ? Math.round((m.lastPos||0)/m.duration*100) : 0;
-    return `<div class="item"><div class="t" data-open="${m.id}" style="cursor:pointer"><b>${/^video/.test(m.type)?"🎬 ":"🎧 "}${esc(m.title)}</b>
+    return `<div class="item"><div class="t" data-open="${m.id}" style="cursor:pointer"><b>${/^video/.test(m.type)?"🎬 ":"🎧 "}${esc(numFirst(m.title))}</b>
       <span class="pill">${fmt(m.duration)}</span>${m.tag?'<span class="pill">'+esc(m.tag)+'</span>':""}${m.script?'<span class="pill">📝 スクリプト</span>':""}${pct?'<span class="pill">'+pct+'%</span>':""}${(()=>{ try{ const t = ST.files[m.id]; return t >= 60 ? '<span class="pill">⏱ ' + fmtT(t) + '</span>' : ""; }catch(e){ return ""; } })()}<div class="small" style="margin-top:2px">元のファイル：${esc(m.name||"")}${m.where?"（"+esc(m.where)+"）":""}</div></div>
       <div class="ops" style="display:flex;gap:4px">${(m.duration||0) > 20*60 || !m.duration ? `<button data-split="${m.id}" title="15分ずつに分ける">✂</button>` : ""}<button data-edit="${m.id}">✏️</button><button data-del="${m.id}">🗑</button></div></div>`;
   }).join("") + '<datalist id="tagList">' + tags.map(t=>'<option value="'+esc(t)+'">').join("") + '<option value="BBC"><option value="ニュース"><option value="商談"><option value="ポッドキャスト"></datalist>';
@@ -388,7 +390,7 @@ async function splitItem(id){
   const onPart = async (b, p, n, ext)=>{
     setProg(Math.round((p+1)/n*100), `分けています… ${p+1}/${n}`);
     const nm = `${m.title} (${p+1}-${n}).${ext}`;
-    const nid = await importFiles([new File([b], nm, {type: b.type})], {title: `${m.title}（${p+1}/${n}）`, tag: m.tag || "", partOf: id});
+    const nid = await importFiles([new File([b], nm, {type: b.type})], {title: `【${p+1}/${n}】${m.title}`, tag: m.tag || "", partOf: id});
     if(nid) made.push(nid);
   };
   try{
@@ -522,7 +524,7 @@ async function openItem(id){
   if(url) URL.revokeObjectURL(url); url = URL.createObjectURL(blob);
   au.src = url; au.playbackRate = S.rate; au.preservesPitch = true;
   au.onloadedmetadata = ()=>{ if(!cur.duration || Math.abs(cur.duration-au.duration)>1) cur.duration = au.duration; au.currentTime = Math.min(cur.lastPos||0, Math.max(0, au.duration-1)); draw(); };
-  $("#title").textContent = (/^video/.test(m.type)?"🎬 ":"🎧 ") + m.title;
+  $("#title").textContent = (/^video/.test(m.type)?"🎬 ":"🎧 ") + numFirst(m.title);
   loopOn = S.loop !== false && !S.all; loopR = null; $("#bLoop").classList.toggle("on", loopOn); $("#bAll").classList.toggle("on", !!S.all); peaks = m.peaks || null;
   renderScript(); tab("play"); setMedia(); DB.put("meta", m);
   setEnv(m.env);
