@@ -78,7 +78,7 @@
 
 <!-- ===== ライブラリ ===== -->
 <section id="lib" class="on">
-  <div class="card" id="studyCard"></div>
+  <div class="card"><div id="studyCard"></div><button class="btn" id="repBtn" type="button" style="width:100%;margin-top:10px">📋 期間を選んで一覧表を出す（SNS・動画用）</button><div id="repBox" style="display:none"></div></div>
   <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b>📻 BBC Global News Podcast</b><a href="https://podcasts.apple.com/nl/podcast/global-news-podcast/id135067274" target="_blank" class="small" style="color:var(--sub)">Apple Podcasts ↗</a></div>
     <button class="btn" id="podBtn" type="button" style="width:100%;margin-top:8px">🆕 最新のエピソードを見る</button><div id="podList"></div></div>
   <div class="card">
@@ -561,12 +561,14 @@ let userPaused = true, lastRecT = 0;
 function userPause(){ userPaused = true; au.pause(); }
 au.addEventListener("play", ()=>{ userPaused = false; });
 $("#podBtn").onclick = ()=>loadPod(0);
+$("#repBtn").onclick = ()=>{ const b = $("#repBox"); if(b.style.display === "block"){ b.style.display = "none"; return; } openReport(); };
 $("#bSplit").onclick = ()=>{ if(cur) splitItem(cur.id); };
 setInterval(()=>{ const d = cur ? (cur.duration || au.duration || 0) : 0; $("#bSplit").style.display = d > 20*60 ? "block" : "none"; }, 1500);
 $("#podList").onclick = e=>{ const b = e.target.closest("[data-pod]"); if(b) grabPod(+b.dataset.pod); };
 $("#copyDesc").onclick = async ()=>{ const t = $("#appDesc").textContent; try{ await navigator.clipboard.writeText(t); toast("説明をコピーしました"); }catch(e){ prompt("下の文字を全部選んでコピーしてください", t); } };
 /* ---------- 勉強時間の記録（再生している時間を、日ごと・ファイルごとに数える） ---------- */
 const ST = LS.get("ll_study", {days:{}, files:{}});
+ST.log = ST.log || {};   // 日ごと・ファイルごと：{秒, 繰り返し回数, 題名}
 let stLast = 0;
 function dayKey(d){ d = d || new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
 function stTick(){
@@ -574,7 +576,7 @@ function stTick(){
   if(!au.paused && stLast){
     const sec = Math.min(5, (now - stLast)/1000);   // 間が空いたとき（スリープなど）は数えすぎない
     const k = dayKey(); ST.days[k] = (ST.days[k]||0) + sec;
-    if(cur){ ST.files[cur.id] = (ST.files[cur.id]||0) + sec; }
+    if(cur){ ST.files[cur.id] = (ST.files[cur.id]||0) + sec; const d = ST.log[k] = ST.log[k] || {}; const f = d[cur.id] = d[cur.id] || {sec:0, reps:0}; f.sec += sec; f.t = numFirst(cur.title); f.dur = cur.duration || 0; }
   }
   stLast = au.paused ? 0 : now;
 }
@@ -582,6 +584,76 @@ setInterval(()=>{ stTick(); }, 1000);
 setInterval(()=>{ LS.set("ll_study", ST); }, 15000);
 au.addEventListener("pause", ()=>{ stTick(); LS.set("ll_study", ST); });
 addEventListener("pagehide", ()=>{ stTick(); LS.set("ll_study", ST); });
+function countRep(){ if(!cur) return; const k = dayKey(), d = ST.log[k] = ST.log[k] || {}; const f = d[cur.id] = d[cur.id] || {sec:0, reps:0}; f.reps++; f.t = numFirst(cur.title); }
+/* ---------- 期間を選んで一覧表（SNS・動画用） ---------- */
+function reportData(from, to){
+  const days = [], files = {};
+  for(let d = new Date(from + "T12:00"); dayKey(d) <= to; d.setDate(d.getDate()+1)){
+    const k = dayKey(d), lg = ST.log[k] || {}, items = [];
+    for(const id in lg){ const f = lg[id]; if(f.sec < 30 && !f.reps) continue; items.push({id, t: f.t || (metas.find(m=>m.id===id)||{}).title || "（削除したファイル）", sec: f.sec, reps: f.reps||0});
+      const F = files[id] = files[id] || {t: f.t, sec:0, reps:0, dur: f.dur||0}; F.sec += f.sec; F.reps += f.reps||0; F.t = F.t || f.t; }
+    items.sort((a,b)=>b.sec-a.sec);
+    days.push({k, d: new Date(d), sec: ST.days[k]||0, items});
+  }
+  return {days, files: Object.values(files).sort((a,b)=>b.sec-a.sec), total: days.reduce((a,x)=>a+x.sec, 0), active: days.filter(x=>x.sec >= 60).length};
+}
+function reportText(r, from, to){
+  const wd = d=>d.toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",weekday:"short"});
+  let t = `📊 英語リスニング記録 ${from.replace(/-/g,"/")}〜${to.replace(/-/g,"/")}\n合計 ${fmtT(r.total)}（${r.active}日／${r.days.length}日）\n\n■ 毎日の勉強時間\n`;
+  for(const x of r.days) t += `${wd(x.d)}　${x.sec >= 60 ? fmtT(x.sec) : "－"}` + (x.items.length ? "　" + x.items.map(i=>`${i.t}${i.reps ? "×" + i.reps : ""}`).join(" / ") : "") + "\n";
+  if(r.files.length){ t += "\n■ 聞いた音声（期間合計）\n"; for(const f of r.files) t += `・${f.t}　${fmtT(f.sec)}` + (f.reps ? `　くり返し${f.reps}回` : "") + (f.dur ? `　通し${(f.sec/f.dur).toFixed(1)}回分` : "") + "\n"; }
+  return t;
+}
+function reportCanvas(r, from, to){
+  const W = 1080, pad = 56, lh = 46, rows = r.days.length, fl = Math.min(8, r.files.length);
+  const H = pad*2 + 170 + 60 + rows*lh + (fl ? 80 + fl*lh : 0) + 40;
+  const c = document.createElement("canvas"); c.width = W; c.height = H; const g = c.getContext("2d");
+  g.fillStyle = "#111418"; g.fillRect(0,0,W,H);
+  g.fillStyle = "#4fb3ff"; g.font = "bold 46px sans-serif"; g.fillText("📊 英語リスニング記録", pad, pad+40);
+  g.fillStyle = "#9aa7b4"; g.font = "30px sans-serif"; g.fillText(`${from.replace(/-/g,"/")} 〜 ${to.replace(/-/g,"/")}`, pad, pad+88);
+  g.fillStyle = "#ffd23f"; g.font = "bold 54px sans-serif"; g.fillText(`合計 ${fmtT(r.total)}`, pad, pad+158);
+  g.fillStyle = "#e8eef4"; g.font = "30px sans-serif"; g.fillText(`${r.active}日 / ${r.days.length}日`, pad + 520, pad+158);
+  let y = pad + 230; const mx = Math.max(1800, ...r.days.map(x=>x.sec));
+  g.font = "28px sans-serif";
+  for(const x of r.days){
+    g.fillStyle = "#9aa7b4"; g.fillText(x.d.toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",weekday:"short"}), pad, y);
+    const bw = Math.round((W - pad*2 - 330) * x.sec / mx); g.fillStyle = "#2b8fd6"; g.fillRect(pad + 170, y - 26, Math.max(bw, x.sec ? 4 : 0), 30);
+    g.fillStyle = "#e8eef4"; g.fillText(x.sec >= 60 ? fmtT(x.sec) : "－", W - pad - 150, y);
+    y += lh;
+  }
+  if(fl){
+    y += 30; g.fillStyle = "#4fb3ff"; g.font = "bold 32px sans-serif"; g.fillText("聞いた音声", pad, y); y += lh; g.font = "26px sans-serif";
+    for(const f of r.files.slice(0, fl)){
+      let t = f.t || ""; while(g.measureText(t).width > W - pad*2 - 330 && t.length > 4) t = t.slice(0, -2);
+      if(t !== f.t) t += "…";
+      g.fillStyle = "#e8eef4"; g.fillText(t, pad, y);
+      g.fillStyle = "#9aa7b4"; g.fillText(fmtT(f.sec) + (f.reps ? `  ×${f.reps}` : ""), W - pad - 300, y);
+      y += lh;
+    }
+  }
+  return c;
+}
+function openReport(){
+  const box = $("#repBox"); const to = dayKey(); const d0 = new Date(); d0.setDate(d0.getDate()-6); const from = dayKey(d0);
+  box.style.display = "block";
+  box.innerHTML = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px"><input type="date" id="repFrom" value="${from}"> 〜 <input type="date" id="repTo" value="${to}">
+    <button class="btn" type="button" data-rp="7">7日</button><button class="btn" type="button" data-rp="30">30日</button><button class="btn" type="button" data-rp="m">今月</button></div>
+    <div id="repOut" class="small" style="white-space:pre-wrap;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:8px;max-height:320px;overflow:auto"></div>
+    <div style="display:flex;gap:6px;margin-top:8px"><button class="btn" type="button" id="repImg" style="flex:1">🖼 画像で保存・共有</button><button class="btn" type="button" id="repCopy" style="flex:1">📋 文字でコピー</button></div>`;
+  const go = ()=>{ const f = $("#repFrom").value, t = $("#repTo").value; if(!f || !t || f > t) return; $("#repOut").textContent = reportText(reportData(f, t), f, t); };
+  box.querySelectorAll("[data-rp]").forEach(b=>b.onclick = ()=>{ const v = b.dataset.rp, e = new Date(); let s = new Date();
+    if(v === "m") s = new Date(e.getFullYear(), e.getMonth(), 1); else s.setDate(e.getDate() - (+v - 1));
+    $("#repFrom").value = dayKey(s); $("#repTo").value = dayKey(e); go(); });
+  $("#repFrom").onchange = go; $("#repTo").onchange = go;
+  $("#repCopy").onclick = async ()=>{ try{ await navigator.clipboard.writeText($("#repOut").textContent); toast("コピーしました"); }catch(e){ prompt("下の文字をコピーしてください", $("#repOut").textContent); } };
+  $("#repImg").onclick = async ()=>{
+    const f = $("#repFrom").value, t = $("#repTo").value, cv = reportCanvas(reportData(f, t), f, t);
+    const blob = await new Promise(r=>cv.toBlob(r, "image/png")); const file = new File([blob], `listening_${f}_${t}.png`, {type:"image/png"});
+    try{ if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:"英語リスニング記録"}); return; } }catch(e){ if(e.name === "AbortError") return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000); toast("画像を保存しました");
+  };
+  go();
+}
 function fmtT(sec){ sec = Math.round(sec||0); const h = Math.floor(sec/3600), m = Math.floor(sec%3600/60); return h ? `${h}時間${m}分` : `${m}分`; }
 function renderStudy(){
   const el = $("#studyCard"); if(!el) return;
@@ -753,9 +825,9 @@ async function update(){
   if(loopOn && !waiting && !au.paused && t >= le - 0.03 && le - ls > 0.1){   // 短い区切りでもループする
     if(S.reps && loopCount+1 >= S.reps){ loopCount = 0; loopOn = false; $("#bLoop").classList.remove("on"); }
     else if(S.gap > 0 && !document.hidden){   // 裏ではタイマーが止まるので、間をあけずにループ
-      waiting = true; au.pause(); loopCount++;
+      waiting = true; au.pause(); loopCount++; countRep();
       await sleep(S.gap*1000); au.currentTime = ls; waiting = false; au.play().catch(()=>{});
-    } else { loopCount++; au.currentTime = ls; }   // 止めずにすぐ頭へ戻す
+    } else { loopCount++; countRep(); au.currentTime = ls; }   // 止めずにすぐ頭へ戻す
   }
   // スクリプト表示
   const sc = cur.script;
@@ -775,7 +847,7 @@ async function update(){
 }
 au.ontimeupdate = ()=>{ if(au.paused || document.hidden) update(); };   // 裏に回っていてもループが効くように
 au.onended = ()=>{ if(S.all && !loopOn){ loopCount = 0; setTimeout(()=>{ au.currentTime = 0; au.play().catch(()=>{}); }, 800); return; }
-  if(loopOn){ const [s] = segRange(segIndex(au.duration-0.1)); loopCount++; setTimeout(()=>{ au.currentTime = s; au.play().catch(()=>{}); }, Math.max(0,S.gap)*1000); } };
+  if(loopOn){ const [s] = segRange(segIndex(au.duration-0.1)); loopCount++; countRep(); setTimeout(()=>{ au.currentTime = s; au.play().catch(()=>{}); }, Math.max(0,S.gap)*1000); } };
 
 /* ---------- 波形 ---------- */
 const cw = $("#wave"), cz = $("#zoom");
