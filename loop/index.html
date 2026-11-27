@@ -561,6 +561,8 @@ let userPaused = true, lastRecT = 0;
 function userPause(){ userPaused = true; au.pause(); }
 au.addEventListener("play", ()=>{ userPaused = false; });
 $("#podBtn").onclick = ()=>loadPod(0);
+addEventListener("offline", ()=>toast("📴 オフラインです。再生・区切り・保存済みのスクリプトと和訳は使えます（スクリプト作り・解説・単語の意味は通信が必要です）", 6000));
+addEventListener("online", ()=>toast("📶 通信が戻りました", 2500));
 $("#repBtn").onclick = ()=>{ const b = $("#repBox"); if(b.style.display === "block"){ b.style.display = "none"; return; } openReport(); };
 $("#bSplit").onclick = ()=>{ if(cur) splitItem(cur.id); };
 setInterval(()=>{ const d = cur ? (cur.duration || au.duration || 0) : 0; $("#bSplit").style.display = d > 20*60 ? "block" : "none"; }, 1500);
@@ -1599,5 +1601,6 @@ document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState=
 
 loadSetUI(); loadLib(); resizeCanvas();
 </script>
+<script>if("serviceWorker" in navigator) addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));</script>
 </body>
 </html>

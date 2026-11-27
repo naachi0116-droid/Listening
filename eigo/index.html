@@ -1407,5 +1407,6 @@ fillFrom();
 if(rg){ $("#from").value = rg.a; $("#order").value = rg.o; }
 loadSettingsUI(); showRate(); resetForm();
 </script>
+<script>if("serviceWorker" in navigator) addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));</script>
 </body>
 </html>
